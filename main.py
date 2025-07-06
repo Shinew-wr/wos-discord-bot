@@ -492,8 +492,14 @@ if __name__ == "__main__":
             latest_tag = release_info["tag_name"]
             source_name = release_info["source"]
             
-            if os.path.exists("version"):
-                with open("version", "r") as f:
+            version_file = "version"
+            if not os.path.exists(version_file):
+                if os.path.exists("version.txt"):
+                    version_file = "version.txt"
+                else:
+                    version_file = None
+            if version_file:
+                with open(version_file, "r") as f:
                     current_version = f.read().strip()
             else:
                 current_version = "v0.0.0"
