@@ -2,6 +2,10 @@ import subprocess
 import sys
 import os
 
+from keep_alive import keep_alive
+
+keep_alive()
+
 def is_container() -> bool:
     return os.path.exists("/.dockerenv") or os.path.exists("/var/run/secrets/kubernetes.io")
 
@@ -13,14 +17,9 @@ def is_ci_environment() -> bool:
     ]
     return any(os.getenv(indicator) for indicator in ci_indicators)
 
-def should_skip_venv() -> bool:
-    """Check if venv should be skipped"""
-    return '--no-venv' in sys.argv or is_container() or is_ci_environment()
-
 # Handle venv setup
-if sys.prefix == sys.base_prefix and not should_skip_venv():
+if sys.prefix == sys.base_prefix and not is_container() and not is_ci_environment():
     print("Running the bot in a venv (virtual environment) to avoid dependency conflicts.")
-    print("Note: You can skip venv creation with the --no-venv argument if needed.")
     venv_path = "bot_venv"
 
     # Determine the python executable path in the venv
@@ -62,9 +61,6 @@ if sys.prefix == sys.base_prefix and not should_skip_venv():
             print(f"  1. Open CMD or PowerShell in this directory: {os.getcwd()}")
             print(f"  2. Run: {venv_python_name} {os.path.basename(sys.argv[0])}")
             sys.exit(0)
-        elif '--no-venv' in sys.argv:
-            print("Virtual environment setup skipped due to --no-venv flag.")
-            print("Warning: Dependencies will be installed system-wide which may cause conflicts.")
         else: # For non-Windows, if venv exists but we're not in it, try to relaunch
             venv_python_executable = os.path.join(venv_path, "bin", "python")
             if os.path.exists(venv_python_executable):
@@ -430,9 +426,7 @@ if __name__ == "__main__":
     def restart_bot():
         python = sys.executable
         script_path = os.path.abspath(sys.argv[0])
-        # Filter out --no-venv from restart args to avoid loops
-        filtered_args = [arg for arg in sys.argv[1:] if arg != "--no-venv"]
-        args = [python, script_path] + filtered_args
+        args = [python, script_path] + sys.argv[1:]
 
         if sys.platform == "win32":
             # For Windows, provide direct venv command like initial setup
@@ -674,7 +668,7 @@ if __name__ == "__main__":
 
     token_file = "bot_token.txt"
     if not os.path.exists(token_file):
-        bot_token = input("Enter the bot token: ")
+        bot_token = os..getenv("DISCORD_TOKEN")
         with open(token_file, "w") as f:
             f.write(bot_token)
     else:

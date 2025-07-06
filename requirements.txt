@@ -1,0 +1,10 @@
+# requirements.txt
+
+discord.py
+flask
+colorama
+aiohttp_socks
+pytz
+pyzipper
+requests
+certifi
