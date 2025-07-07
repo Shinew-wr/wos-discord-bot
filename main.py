@@ -879,11 +879,6 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Error syncing commands: {e}")
 
-    async def main():
-        await load_cogs()
-        
-        await bot.start(bot_token)
-
 import logging
 import asyncio
 import traceback
