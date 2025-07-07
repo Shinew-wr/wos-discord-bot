@@ -884,10 +884,6 @@ if __name__ == "__main__":
         
         await bot.start(bot_token)
 
-    if __name__ == "__main__":
-        asyncio.run(main())
-
-
 import logging
 import asyncio
 import traceback
@@ -915,3 +911,6 @@ async def main():
 
     if retries >= max_retries:
         print("❌ Maximum retry attempts reached. Exiting.")
+
+if __name__ == "__main__":
+    asyncio.run(main())
