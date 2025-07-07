@@ -438,7 +438,7 @@ class Control(commands.Cog):
             traceback.print_exc()
 
     @commands.Cog.listener()
-async def on_ready(self):
+    async def on_ready(self):
     if not self.monitor_started:
         print("[CONTROL] Starting monitor and queue processor...")
         self._queue_processor_task = asyncio.create_task(self.process_control_queue())
