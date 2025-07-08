@@ -879,33 +879,10 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Error syncing commands: {e}")
 
-import logging
-import asyncio
-import traceback
+    async def main():
+        await load_cogs()
+        
+        await bot.start(bot_token)
 
-logging.basicConfig(level=logging.INFO)  # 顯示 Discord Gateway 的日誌
-
-async def main():
-    await load_cogs()
-    
-    max_retries = 5
-    retry_delay = 10  
-    retries = 0
-
-    while retries < max_retries:
-        try:
-            await bot.start(bot_token)
-            break  # 正常啟動，不重試
-        except Exception as e:
-            print("🚨 Unhandled exception during bot startup or runtime:")
-            traceback.print_exc()
-
-            retries += 1
-            print(f"🔁 Retry attempt {retries}/{max_retries} in {retry_delay} seconds...")
-            await asyncio.sleep(retry_delay)
-
-    if retries >= max_retries:
-        print("❌ Maximum retry attempts reached. Exiting.")
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    if __name__ == "__main__":
+        asyncio.run(main())
