@@ -442,11 +442,7 @@ class Control(commands.Cog):
         if not self.monitor_started:
             print("[CONTROL] Starting monitor and queue processor...")
             self._queue_processor_task = asyncio.create_task(self.process_control_queue())
-
-            # ⚠️ 避免重複啟動：只在未執行時才 .start()
-            if not self.monitor_alliance_changes.is_running():
-                self.monitor_alliance_changes.start()
-
+            self.monitor_alliance_changes.start()
             await self.start_alliance_checks()
             self.monitor_started = True
             print("[CONTROL] Monitor and queue processor started successfully")
