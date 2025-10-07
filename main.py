@@ -511,7 +511,7 @@ if __name__ == "__main__":
                 print()
                 
                 update = False
-                
+            
                 is_non_interactive = is_container() or os.getenv('RENDER') == 'true'
                 
                 if is_non_interactive:
@@ -521,19 +521,20 @@ if __name__ == "__main__":
                         print(Fore.YELLOW + "Automatic update disabled by --no-update argument." + Style.RESET_ALL)
                         update = False
                     else:
-                        print(Fore.YELLOW + "Continuing with automatic update." + Style.RESET_ALL)
+                        print(Fore.YELLOW + "Continuing with automatic update (as --no-update was not used)." + Style.RESET_ALL)
                         update = True
+                        
                 else:
                     if "--autoupdate" in sys.argv:
                         update = True
                     else:
                         print("Note: If your terminal is not interactive, you can use the --autoupdate argument to skip this prompt.")
                         try:
-                        ask = input("Do you want to update? (y/n): ").strip().lower()
-                        update = ask == "y"
+                            ask = input("Do you want to update? (y/n): ").strip().lower()
+                            update = ask == "y"
                         except EOFError:
-                        print(Fore.YELLOW + "Running in a container. Skipping update prompt." + Style.RESET_ALL)
-                        update = True
+                            print(Fore.RED + "ERROR: EOF detected. Skipping update." + Style.RESET_ALL)
+                            update = False
                     
                 if update:
                     if os.path.exists("db") and os.path.isdir("db"):
