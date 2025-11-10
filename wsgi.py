@@ -17,7 +17,7 @@ def start_bot_thread():
         if "--no-update" not in sys.argv:
             sys.argv.append("--no-update")
         
-        # 執行 main.py 底部原本的 Bot 啟動邏輯 (asyncio.run(main()))
+        # 執行 main.py 底部原本的 Bot 啟動邏輯 main.run_bot_application()
         main.run_bot_application()
         
     except Exception as e:
