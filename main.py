@@ -894,3 +894,4 @@ def run_bot_application():
         await load_cogs()
         
         await bot.start(bot_token)
+    asyncio.run(main())
