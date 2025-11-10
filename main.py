@@ -417,7 +417,8 @@ except ImportError:
 except Exception as e:
     print(Fore.RED + f"Error applying SSL context patch: {e}" + Style.RESET_ALL)
 
-if __name__ == "__main__":
+def run_bot_application():
+    
     import requests
 
     def restart_bot():
@@ -893,6 +894,3 @@ if __name__ == "__main__":
         await load_cogs()
         
         await bot.start(bot_token)
-
-    if __name__ == "__main__":
-        asyncio.run(main())
