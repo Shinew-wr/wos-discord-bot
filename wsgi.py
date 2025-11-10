@@ -18,7 +18,7 @@ def start_bot_thread():
             sys.argv.append("--no-update")
         
         # 執行 main.py 底部原本的 Bot 啟動邏輯 (asyncio.run(main()))
-        asyncio.run(main.main())
+        main.run_bot_application()
         
     except Exception as e:
         # 如果 Bot 啟動失敗，強制退出 Worker，讓 Render 平台知道服務已停止
