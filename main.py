@@ -2,9 +2,6 @@ import subprocess
 import sys
 import os
 
-from keep_alive import keep_alive
-
-keep_alive()
 
 def is_container() -> bool:
     return os.path.exists("/.dockerenv") or os.path.exists("/var/run/secrets/kubernetes.io")
