@@ -1,85 +1,202 @@
-import subprocess
 import sys
 import os
-
-
-def is_container() -> bool:
-    return os.path.exists("/.dockerenv") or os.path.exists("/var/run/secrets/kubernetes.io")
-
-def is_ci_environment() -> bool:
-    """Check if running in a CI environment"""
-    ci_indicators = [
-        'CI', 'CONTINUOUS_INTEGRATION', 'GITHUB_ACTIONS', 
-        'JENKINS_URL', 'TRAVIS', 'CIRCLECI', 'GITLAB_CI'
-    ]
-    return any(os.getenv(indicator) for indicator in ci_indicators)
-
-# Handle venv setup
-if sys.prefix == sys.base_prefix and not is_container() and not is_ci_environment():
-    print("Running the bot in a venv (virtual environment) to avoid dependency conflicts.")
-    venv_path = "bot_venv"
-
-    # Determine the python executable path in the venv
-    if sys.platform == "win32":
-        venv_python_name = os.path.join(venv_path, "Scripts", "python.exe")
-        activate_script = os.path.join(venv_path, "Scripts", "activate.bat")
-    else:
-        venv_python_name = os.path.join(venv_path, "bin", "python")
-        activate_script = os.path.join(venv_path, "bin", "activate")
-
-    if not os.path.exists(venv_path):
-        try:
-            print("Attempting to create virtual environment automatically...")
-            subprocess.check_call([sys.executable, "-m", "venv", venv_path], timeout=300)
-            print(f"Virtual environment created at {venv_path}")
-
-            if sys.platform == "win32":
-                print("\nVirtual environment created.")
-                print("To continue, please run the script again with the venv Python:")
-                print(f"  1. Open CMD or PowerShell in this directory: {os.getcwd()}")
-                print(f"  2. Run: {venv_python_name} {os.path.basename(sys.argv[0])}")
-                sys.exit(0)
-            else: # For non-Windows, try to relaunch automatically
-                print("Restarting script in virtual environment...")
-                venv_python_executable = os.path.join(venv_path, "bin", "python")
-                os.execv(venv_python_executable, [venv_python_executable] + sys.argv)
-
-        except Exception as e:
-            print("Failed to create virtual environment automatically.")
-            print(f"Error: {e}")
-            print("Please create one manually with: python -m venv bot_venv")
-            print("Then activate it and run this script again.")
-            print("See also: https://docs.python.org/3/library/venv.html#how-venvs-work")
-            sys.exit(1)
-    else: # Venv exists
-        if sys.platform == "win32":
-            print(f"Virtual environment at {venv_path} exists.")
-            print("To ensure you are using it, please run the script with the venv Python:")
-            print(f"  1. Open CMD or PowerShell in this directory: {os.getcwd()}")
-            print(f"  2. Run: {venv_python_name} {os.path.basename(sys.argv[0])}")
-            sys.exit(0)
-        else: # For non-Windows, if venv exists but we're not in it, try to relaunch
-            venv_python_executable = os.path.join(venv_path, "bin", "python")
-            if os.path.exists(venv_python_executable):
-                print(f"Using existing virtual environment at {venv_path}. Restarting...")
-                os.execv(venv_python_executable, [venv_python_executable] + sys.argv)
-            else:
-                print(f"Virtual environment at {venv_path} appears corrupted.")
-                print("Please remove it and run the script again, or create a new one manually.")
-                sys.exit(1)
 
 try: # Import or install requests so we can get the requirements
     import requests
 except ImportError:
     print("Installing requests (required for dependency management)...")
     try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "requests"], 
-                            timeout=300, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        cmd = [sys.executable, "-m", "pip", "install", "requests"]
+        
+        if break_system_packages_arg():
+            cmd.append("--break-system-packages")
+        
+        subprocess.check_call(cmd, timeout=300, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         import requests
     except Exception as e:
         print(f"Failed to install requests: {e}")
         print("Please install requests manually: pip install requests")
         sys.exit(1)
+
+def remove_readonly(func, path, _):
+    """Clear the readonly bit and reattempt the removal"""
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+def safe_remove(path, is_dir=None):
+    """
+    Safely remove a file or directory.
+    Clear the read-only bit on Windows.
+    
+    Args:
+        path: Path to file or directory to remove
+        is_dir: True for directory, False for file, None to auto-detect
+        
+    Returns:
+        bool: True if successfully removed, False otherwise
+    """
+    if not os.path.exists(path):
+        return True  # Already gone, consider it success
+    
+    if is_dir is None: # Auto-detect type if not specified
+        is_dir = os.path.isdir(path)
+    
+    try:
+        if is_dir:
+            if sys.platform == "win32":
+                shutil.rmtree(path, onexc=remove_readonly)
+            else:
+                shutil.rmtree(path)
+        else:
+            try:
+                os.remove(path)
+            except PermissionError:
+                if sys.platform == "win32":
+                    os.chmod(path, stat.S_IWRITE)
+                    os.remove(path)
+                else:
+                    raise  # Re-raise on non-Windows platforms
+        
+        return True
+        
+    except PermissionError:
+        print(f"Warning: Access Denied. Could not remove '{path}'.\nCheck permissions or if {'directory' if is_dir else 'file'} is in use.")
+    except OSError as e:
+        print(f"Warning: Could not remove '{path}': {e}")
+    
+    return False
+
+def calculate_file_hash(filepath):
+    """Calculate SHA256 hash of a file."""
+    import hashlib
+    if not os.path.exists(filepath):
+        return None
+    
+    sha256_hash = hashlib.sha256()
+    try:
+        with open(filepath, "rb") as f:
+            for byte_block in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(byte_block)
+        return sha256_hash.hexdigest()
+    except Exception:
+        return None
+
+def uninstall_packages(packages, reason=""):
+    """Generic function to uninstall a list of packages"""
+    if not packages:
+        return
+    
+    print(F.YELLOW + f"Found {len(packages)} packages to remove{reason}: {', '.join(packages)}" + R)
+    debug_mode = "--verbose" in sys.argv or "--debug" in sys.argv
+    
+    for package in packages:
+        try:
+            cmd = [sys.executable, "-m", "pip", "uninstall", "-y", package]
+            
+            if debug_mode:
+                subprocess.check_call(cmd, timeout=300)
+            else:
+                subprocess.check_call(cmd, timeout=300, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print(F.GREEN + f"✓ Removed {package}" + R)
+        except subprocess.CalledProcessError:
+            print(F.YELLOW + f"✗ Could not remove {package} (might be needed by other packages)" + R)
+        except Exception as e:
+            print(F.YELLOW + f"✗ Error removing {package}: {e}" + R)
+
+def get_packages_to_remove():
+    """Get all packages that should be removed (from requirements comparison + legacy)"""
+    packages_to_remove = set()
+    
+    # Check requirements.old vs requirements.txt (if they exist)
+    if os.path.exists("requirements.old") and os.path.exists("requirements.txt"):
+        try:
+            old_packages = set()
+            new_packages = set()
+            
+            # Parse old requirements
+            with open("requirements.old", "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        pkg_name = line.split("==")[0].split(">=")[0].split("<=")[0].split("~=")[0].split("!=")[0]
+                        old_packages.add(pkg_name.strip().lower())
+            
+            # Parse new requirements
+            with open("requirements.txt", "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        pkg_name = line.split("==")[0].split(">=")[0].split("<=")[0].split("~=")[0].split("!=")[0]
+                        new_packages.add(pkg_name.strip().lower())
+            
+            packages_to_remove.update(old_packages - new_packages)
+        except Exception as e:
+            print(F.YELLOW + f"Error comparing requirements: {e}" + R)
+    
+    # Always check for legacy packages that are still installed
+    for package in LEGACY_PACKAGES_TO_REMOVE:
+        if is_package_installed(package):
+            packages_to_remove.add(package.lower())
+    
+    return list(packages_to_remove)
+
+def cleanup_removed_packages():
+    """Main cleanup function - removes obsolete packages"""
+    packages = get_packages_to_remove()
+    
+    if packages:
+        reason = " from requirements" if os.path.exists("requirements.old") else " (legacy packages)"
+        uninstall_packages(packages, reason)
+    
+    # Clean up requirements.old
+    if os.path.exists("requirements.old"):
+        safe_remove("requirements.old", is_dir=False)
+
+# Potential leftovers from older bot versions
+LEGACY_PACKAGES_TO_REMOVE = [
+    "ddddocr",
+    "easyocr", 
+    "torch",
+    "torchvision",
+    "torchaudio",
+    "opencv-python",
+    "opencv-python-headless",
+]
+
+def has_obsolete_requirements():
+    """
+    Check if requirements.txt contains obsolete packages from older versions.
+    Required to fix bug with v1.2.0 upgrade logic that deleted new requirements.txt.
+    """
+    if not os.path.exists("requirements.txt"):
+        return False
+    
+    try:
+        with open("requirements.txt", "r") as f:
+            content = f.read().lower()
+            
+        for package in LEGACY_PACKAGES_TO_REMOVE:
+            if package.lower() in content:
+                return True
+        
+        return False
+    except Exception as e:
+        print(f"Error checking requirements.txt: {e}")
+        return False
+
+def is_package_installed(package_name):
+    """Check if a package is installed"""
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "show", package_name],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
 
 # Configuration for multiple update sources
 UPDATE_SOURCES = [
@@ -97,22 +214,40 @@ UPDATE_SOURCES = [
     # Can add more sources here as needed
 ]
 
-def get_latest_release_info():
+def get_latest_release_info(beta_mode=False):
     """Try to get latest release info from multiple sources."""
     for source in UPDATE_SOURCES:
         try:
             print(f"Checking for updates from {source['name']}...")
             
             if source['name'] == "GitHub":
-                response = requests.get(source['api_url'], timeout=30)
-                if response.status_code == 200:
-                    data = response.json()
-                    return {
-                        "tag_name": data["tag_name"],
-                        "body": data["body"],
-                        "download_url": data["assets"][0]["browser_download_url"] if data["assets"] else None,
-                        "source": source['name']
-                    }
+                if beta_mode:
+                    # Get latest commit from main branch
+                    repo_name = source['api_url'].split('/repos/')[1].split('/releases')[0]
+                    branch_url = f"https://api.github.com/repos/{repo_name}/branches/main"
+                    response = requests.get(branch_url, timeout=30)
+                    if response.status_code == 200:
+                        data = response.json()
+                        commit_sha = data['commit']['sha'][:7]  # Short SHA
+                        return {
+                            "tag_name": f"beta-{commit_sha}",
+                            "body": f"Latest development version from main branch (commit: {commit_sha})",
+                            "download_url": f"https://github.com/{repo_name}/archive/refs/heads/main.zip",
+                            "source": f"{source['name']} (Beta)"
+                        }
+                else:
+                    response = requests.get(source['api_url'], timeout=30)
+                    if response.status_code == 200:
+                        data = response.json()
+                        # Use GitHub's automatic source archive
+                        repo_name = source['api_url'].split('/repos/')[1].split('/releases')[0]
+                        download_url = f"https://github.com/{repo_name}/archive/refs/tags/{data['tag_name']}.zip"
+                        return {
+                            "tag_name": data["tag_name"],
+                            "body": data["body"],
+                            "download_url": download_url,
+                            "source": source['name']
+                        }
                     
             elif source['name'] == "GitLab":
                 response = requests.get(source['api_url'], timeout=30)
@@ -120,10 +255,9 @@ def get_latest_release_info():
                     releases = response.json()
                     if releases:
                         latest = releases[0]  # GitLab returns array, first is latest
-                        # For GitLab, we use the generic packages API to get patch.zip
-                        project_id = source.get('project_id', 1)
                         tag_name = latest['tag_name']
-                        download_url = f"https://gitlab.whiteout-bot.com/api/v4/projects/{project_id}/packages/generic/release/{tag_name}/patch.zip"
+                        # Use GitLab's source archive
+                        download_url = f"https://gitlab.whiteout-bot.com/whiteout-project/bot/-/archive/{tag_name}/bot-{tag_name}.zip"
                         return {
                             "tag_name": tag_name,
                             "body": latest.get("description", "No release notes available"),
@@ -151,48 +285,52 @@ def get_latest_release_info():
     print("All update sources failed")
     return None
 
-def ensure_requirements_file():
-    """Ensure requirements.txt exists, download from available sources if needed."""
+def download_requirements_from_release(beta_mode=False):
+    """
+    Download requirements.txt file directly from the latest release or main branch if beta mode.
+    """
     if os.path.exists("requirements.txt"):
         return True
     
-    print("requirements.txt not found. Attempting to download from available sources...")
+    print("Downloading requirements.txt from latest release...")
     
-    release_info = get_latest_release_info()
-    if not release_info or not release_info.get("download_url"):
-        print("Could not find a valid download source for requirements.txt")
+    # Get latest release info to find the tag
+    release_info = get_latest_release_info(beta_mode=beta_mode)
+    if not release_info:
+        print("Could not get release information")
+        return False
+    
+    tag = release_info["tag_name"]
+    source_name = release_info.get("source", "Unknown")
+    
+    # Build raw URL based on source and mode
+    if source_name == "GitHub" or "GitHub" in source_name:
+        if beta_mode:
+            raw_url = "https://raw.githubusercontent.com/whiteout-project/bot/main/requirements.txt"
+        else:
+            raw_url = f"https://raw.githubusercontent.com/whiteout-project/bot/refs/tags/{tag}/requirements.txt"
+    elif source_name == "GitLab":
+        if beta_mode:
+            raw_url = "https://gitlab.whiteout-bot.com/whiteout-project/bot/-/raw/main/requirements.txt"
+        else:
+            raw_url = f"https://gitlab.whiteout-bot.com/whiteout-project/bot/-/raw/{tag}/requirements.txt"
+    else:
+        print(f"Unknown source: {source_name}")
         return False
     
     try:
-        download_url = release_info["download_url"]
-        print(f"Downloading from {release_info['source']}: {download_url}")
+        print(f"Downloading from {source_name}: {raw_url}")
+        response = requests.get(raw_url, timeout=30)
         
-        download_resp = requests.get(download_url, timeout=300)
-        if download_resp.status_code == 200:
-            with open("temp_package.zip", "wb") as f:
-                f.write(download_resp.content)
+        if response.status_code == 200:
+            with open("requirements.txt", "w") as f:
+                f.write(response.text)
+            print("Successfully downloaded requirements.txt")
+            return True
+        else:
+            print(f"Failed to download: HTTP {response.status_code}")
+            return False
             
-            import zipfile
-            with zipfile.ZipFile("temp_package.zip", 'r') as zip_ref:
-                if "requirements.txt" in zip_ref.namelist():
-                    zip_ref.extract("requirements.txt", ".")
-                    print("Successfully downloaded requirements.txt")
-                    
-                    try:
-                        os.remove("temp_package.zip")
-                    except:
-                        pass
-                    
-                    return True
-            
-            try:
-                os.remove("temp_package.zip")
-            except:
-                pass
-        
-        print(f"Failed to download from {release_info['source']}")
-        return False
-        
     except Exception as e:
         print(f"Error downloading requirements.txt: {e}")
         return False
@@ -200,7 +338,7 @@ def ensure_requirements_file():
 def check_and_install_requirements():
     """Check each requirement and install missing ones."""
     if not os.path.exists("requirements.txt"):
-        print("No requirements.txt found after download attempt")
+        print("No requirements.txt found")
         return False
         
     # Read requirements
@@ -215,10 +353,6 @@ def check_and_install_requirements():
     for requirement in requirements:
         package_name = requirement.split("==")[0].split(">=")[0].split("<=")[0].split("~=")[0].split("!=")[0]
         
-        # Skip OCR-related packages for now
-        if package_name.lower() in ["ddddocr", "opencv-python-headless", "numpy", "pillow", "onnxruntime"]:
-            continue
-            
         try:
             if package_name == "discord.py":
                 import discord
@@ -226,6 +360,16 @@ def check_and_install_requirements():
                 import aiohttp_socks
             elif package_name == "python-dotenv":
                 import dotenv
+            elif package_name == "python-bidi":
+                import bidi
+            elif package_name == "arabic-reshaper":
+                import arabic_reshaper
+            elif package_name.lower() == "pillow":
+                import PIL
+            elif package_name.lower() == "numpy":
+                import numpy
+            elif package_name.lower() == "onnxruntime":
+                import onnxruntime
             else:
                 __import__(package_name)
                         
@@ -240,9 +384,8 @@ def check_and_install_requirements():
             try:
                 cmd = [sys.executable, "-m", "pip", "install", package, "--no-cache-dir"]
                 
-                # Special handling for ddddocr on Python 3.13+
-                if package.startswith("ddddocr") and sys.version_info >= (3, 13):
-                    cmd.append("--ignore-requires-python")
+                if break_system_packages_arg():
+                    cmd.append("--break-system-packages")
                 
                 subprocess.check_call(cmd, timeout=1200, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 print(f"✓ {package} installed successfully")
@@ -251,100 +394,40 @@ def check_and_install_requirements():
                 print(f"✗ Failed to install {package}: {e}")
                 return False
     
-    print("✓ All basic requirements satisfied")
+    print("✓ All requirements satisfied")
     return True
 
-def check_ocr_dependencies():
-    """Check and install OCR-specific dependencies."""
-    print("Checking OCR dependencies...")
-        
-    missing_ocr = []
-    
-    # Test OCR imports
-    try:
-        import numpy
-    except ImportError:
-        print("✗ numpy - MISSING")
-        missing_ocr.append("numpy")
-    
-    try:
-        import PIL
-    except ImportError:
-        print("✗ Pillow - MISSING")
-        missing_ocr.append("Pillow")
-    
-    try:
-        import cv2
-    except ImportError:
-        print("✗ opencv-python-headless - MISSING")
-        missing_ocr.append("opencv-python-headless")
-    
-    try:
-        import onnxruntime
-    except ImportError:
-        print("✗ onnxruntime - MISSING")
-        missing_ocr.append("onnxruntime")
-    
-    try:
-        import ddddocr
-    except ImportError:
-        print("✗ ddddocr - MISSING")
-        missing_ocr.append("ddddocr==1.5.6")
-    
-    # Install missing OCR packages
-    if missing_ocr:
-        print(f"Installing {len(missing_ocr)} missing OCR packages...")
-        
-        for package in missing_ocr:
-            try:
-                cmd = [sys.executable, "-m", "pip", "install", package, "--no-cache-dir"]
-                
-                if package.startswith("ddddocr") and sys.version_info >= (3, 13):
-                    cmd.append("--ignore-requires-python")
-                
-                subprocess.check_call(cmd, timeout=600, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                print(f"✓ {package} installed successfully")
-                
-            except Exception as e:
-                print(f"✗ Failed to install {package}: {e}")
-    
-    # Test OCR object creation
-    try:
-        import ddddocr
-        ocr = ddddocr.DdddOcr(show_ad=False)
-        return True
-    except Exception as e:
-        print(f"✗ OCR object creation failed: {e}")
-        if "DLL" in str(e):
-            print("Visual C++ Redistributable may be missing or outdated.")
-            print("Please install latest 64-bit from: https://aka.ms/vs/17/release/vc_redist.x64.exe")
-        return False
-
-def setup_dependencies():
+def setup_dependencies(beta_mode=False):
     """Main function to set up all dependencies."""
-    print("Starting dependency check...")
+    print("\nChecking dependencies...")
     
-    # Ensure requirements.txt exists
-    if not ensure_requirements_file():
-        print("Failed to obtain requirements.txt")
-        return False
+    removed_obsolete = False
+    if has_obsolete_requirements():
+        print("! Warning: requirements.txt contains obsolete packages from older version")
+        print("! Removing outdated requirements.txt and downloading fresh copy...")
+        removed_obsolete = True
+
+        if not safe_remove("requirements.txt", is_dir=False):
+            print("! Error removing obsolete requirements.txt")
+
+    if not os.path.exists("requirements.txt"):
+        if not removed_obsolete:
+            print("! Warning: requirements.txt not found")
+        if not download_requirements_from_release(beta_mode=beta_mode):
+            print("✗ Failed to download requirements.txt")
+            print("• Please download the complete bot package from: https://github.com/whiteout-project/bot/releases")
+            return False
     
-    # Check and install basic requirements
     if not check_and_install_requirements():
-        print("Failed to install basic requirements")
+        print("✗ Failed to install requirements")
         return False
     
-    # Check and install OCR dependencies
-    ocr_success = check_ocr_dependencies()
-    if not ocr_success:
-        print("OCR setup failed, but continuing with basic functionality")
-    
-    print("Dependency check completed...")
     return True
 
-if not setup_dependencies():
-    print("Dependency setup failed. Please install manually with: pip install -r requirements.txt")
-    sys.exit(1)
+beta_mode = "--beta" in sys.argv
+if not setup_dependencies(beta_mode=beta_mode):
+    print("Warning: Dependency setup incomplete. Please update if prompted or run --repair to try fixing this.")
+    print("If update or repair fails, please install manually with: pip install -r requirements.txt")
 
 try:
     from colorama import Fore, Style, init
@@ -355,42 +438,40 @@ except ImportError as e:
     print("Please restart the script or install dependencies manually")
     sys.exit(1)
 
+# Colorama shortcuts
+F = Fore
+R = Style.RESET_ALL
+
 import warnings
-import shutil
 
-print("Removing unnecessary files...")
-
-v1_path = "V1oldbot"
-if os.path.exists(v1_path) and os.path.isdir(v1_path):
-    try:
-        shutil.rmtree(v1_path)
+def startup_cleanup():
+    """Perform all cleanup tasks on startup - directories, files, and legacy packages."""
+    v1_path = "V1oldbot"
+    if os.path.exists(v1_path) and safe_remove(v1_path):
         print(f"Removed directory: {v1_path}")
-    except PermissionError:
-        print(f"Warning: Access Denied. Could not remove legacy directory '{v1_path}'. Please check permissions or if files are in use, then remove manually if needed.")
-    except OSError as e:
-        print(f"Warning: Could not remove legacy directory '{v1_path}': {e}")
-
-v2_path = "V2Old"
-if os.path.exists(v2_path) and os.path.isdir(v2_path):
-    try:
-        shutil.rmtree(v2_path)
+    
+    v2_path = "V2Old"
+    if os.path.exists(v2_path) and safe_remove(v2_path):
         print(f"Removed directory: {v2_path}")
-    except PermissionError:
-        print(f"Warning: Access Denied. Could not remove legacy directory '{v2_path}'. Please check permissions or if files are in use, then remove manually if needed.")
-    except OSError as e:
-        print(f"Warning: Could not remove legacy directory '{v2_path}': {e}")
-
-txt_path = "autoupdateinfo.txt"
-if os.path.exists(txt_path) and os.path.isfile(txt_path): 
-    try:
-        os.remove(txt_path)
+    
+    pictures_path = "pictures"
+    if os.path.exists(pictures_path) and safe_remove(pictures_path):
+        print(f"Removed directory: {pictures_path}")
+    
+    txt_path = "autoupdateinfo.txt"
+    if os.path.exists(txt_path) and safe_remove(txt_path):
         print(f"Removed file: {txt_path}")
-    except PermissionError:
-        print(f"Warning: Access Denied. Could not remove legacy file '{txt_path}'. Please check permissions or if the file is in use, then remove it manually if needed.")
-    except OSError as e:
-        print(f"Warning: Could not remove legacy file '{txt_path}': {e}")
+    
+    # Check for legacy packages to remove on startup
+    legacy_packages = []
+    for package in LEGACY_PACKAGES_TO_REMOVE:
+        if is_package_installed(package):
+            legacy_packages.append(package.lower())
+    
+    if legacy_packages:
+        uninstall_packages(legacy_packages, " (legacy packages)")
 
-print("Cleanup attempt finished.")
+startup_cleanup()
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
@@ -409,489 +490,464 @@ try:
        original_create_default_https_context is ssl.create_default_context:
         ssl._create_default_https_context = _create_ssl_context_with_certifi
         
-        print(Fore.GREEN + "Applied SSL context patch using certifi for default HTTPS connections." + Style.RESET_ALL)
+        print(F.GREEN + "Applied SSL context patch using certifi for default HTTPS connections." + R)
     else: # Assume if it's already patched, it's for a good reason, just log it.
-        print(Fore.YELLOW + "SSL default HTTPS context seems to be already modified. Skipping certifi patch." + Style.RESET_ALL)
+        print(F.YELLOW + "SSL default HTTPS context seems to be already modified. Skipping certifi patch." + R)
 except ImportError:
-    print(Fore.RED + "Certifi library not found. SSL certificate verification might fail until it's installed." + Style.RESET_ALL)
+    print(F.RED + "Certifi library not found. SSL certificate verification might fail until it's installed." + R)
 except Exception as e:
-    print(Fore.RED + f"Error applying SSL context patch: {e}" + Style.RESET_ALL)
+    print(F.RED + f"Error applying SSL context patch: {e}" + R)
 
-def run_bot_application():
+if __name__ == "__main__":
+    import requests
+
+    # Check for mutually exclusive flags
+    mutually_exclusive_flags = ["--autoupdate", "--no-update", "--repair"]
+    active_flags = [flag for flag in mutually_exclusive_flags if flag in sys.argv]
     
-        import requests
-    
-        def restart_bot():
-            python = sys.executable
-            script_path = os.path.abspath(sys.argv[0])
-            args = [python, script_path] + sys.argv[1:]
-    
-            if sys.platform == "win32":
-                # For Windows, provide direct venv command like initial setup
-                print(Fore.GREEN + "Update completed successfully!" + Style.RESET_ALL)
-                print(Fore.YELLOW + "Please restart the bot manually to continue:" + Style.RESET_ALL)
-                print(Fore.CYAN + f"  1. Open CMD or PowerShell in this directory: {os.getcwd()}" + Style.RESET_ALL)
-                
-                venv_path = "bot_venv"
-                venv_python_name = os.path.join(venv_path, "Scripts", "python.exe")
-                print(Fore.CYAN + f"  2. Run: {venv_python_name} {os.path.basename(script_path)}" + Style.RESET_ALL)
-                sys.exit(0)
+    if len(active_flags) > 1:
+        print(F.RED + f"Error: {' and '.join(active_flags)} flags are mutually exclusive." + R)
+        print("Use --autoupdate to automatically install updates without prompting.")
+        print("Use --no-update to skip all update checks.")
+        print("Use --repair to force reinstall/repair missing or corrupted files.")
+        sys.exit(1)
+
+    def restart_bot():
+        python = sys.executable
+        script_path = os.path.abspath(sys.argv[0])
+        # Filter out --no-venv and --repair from restart args to avoid loops
+        filtered_args = [arg for arg in sys.argv[1:] if arg not in ["--no-venv", "--repair"]]
+        args = [python, script_path] + filtered_args
+
+        if sys.platform == "win32":
+            # For Windows, provide direct venv command like initial setup
+            print(F.YELLOW + "Please restart the bot manually to continue:" + R)
+            print(F.CYAN + f"  1. Ensure CMD or PowerShell is open in this directory: {os.getcwd()}" + R)
+            
+            venv_path = "bot_venv"
+            venv_python_name = os.path.join(venv_path, "Scripts", "python.exe")
+            print(F.CYAN + "  2. Run this exact command: " + F.GREEN + f"{venv_python_name} {os.path.basename(script_path)}" + R)
+            sys.exit(0)
+        else:
+            # For non-Windows, try automatic restart
+            print(F.YELLOW + "Restarting bot..." + R)
+            try:
+                subprocess.Popen(args)
+                os._exit(0)
+            except Exception as e:
+                print(f"Error restarting: {e}")
+                os.execl(python, python, script_path, *sys.argv[1:])
+            
+    def install_packages(requirements_txt_path: str, debug: bool = False) -> bool:
+        """Install packages from requirements.txt file using pip install -r."""
+        full_command = [sys.executable, "-m", "pip", "install", "-r", requirements_txt_path, "--no-cache-dir"]
+        
+        if break_system_packages_arg():
+            full_command.append("--break-system-packages")
+        
+        try:
+            if debug:
+                subprocess.check_call(full_command, timeout=1200)
             else:
-                # For non-Windows, try automatic restart
-                print(Fore.YELLOW + "Restarting bot..." + Style.RESET_ALL)
-                try:
-                    subprocess.Popen(args)
-                    os._exit(0)
-                except Exception as e:
-                    print(f"Error restarting: {e}")
-                    os.execl(python, python, script_path, *sys.argv[1:])
-                
-        def safe_remove_file(file_path):
-            """Safely remove a file if it exists."""
-            if os.path.exists(file_path) and os.path.isfile(file_path):
-                try:
-                    os.remove(file_path)
-                    return True
-                except PermissionError:
-                    print(Fore.YELLOW + f"Warning: Access Denied. Could not remove '{file_path}'. Check permissions or if file is in use." + Style.RESET_ALL)
-                except OSError as e:
-                    print(Fore.YELLOW + f"Warning: Could not remove '{file_path}': {e}" + Style.RESET_ALL)
+                subprocess.check_call(full_command, timeout=1200, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+        except Exception as e:
+            if debug:
+                print(f"Failed to install requirements: {e}")
             return False
     
-        def install_packages(requirements_txt_path: str, debug: bool = False) -> bool:
-            """Install packages from requirements.txt file if needed."""
-            with open(requirements_txt_path, "r") as f: 
-                lines = [line.strip() for line in f]
-            
-            success = []
-                
-            for dependency in lines:
-                full_command = [sys.executable, "-m", "pip", "install", dependency, "--no-cache-dir"]
-                
-                if dependency.startswith("ddddocr") and (sys.version_info.major == 3 and sys.version_info.minor >= 13):
-                    full_command = full_command + ["--ignore-requires-python"]
-            
-                try:
-                    if debug:
-                        subprocess.check_call(full_command, timeout=1200)
-                    else:
-                        subprocess.check_call(full_command, timeout=1200, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                        
-                    success.append(0)
-                except Exception as _:
-                    success.append(1)
-                    
-            return sum(success) == 0
+    async def check_and_update_files():
+        beta_mode = "--beta" in sys.argv
+        repair_mode = "--repair" in sys.argv
+        release_info = get_latest_release_info(beta_mode=beta_mode)
         
-        async def check_and_update_files():
-            release_info = get_latest_release_info()
+        if release_info:
+            latest_tag = release_info["tag_name"]
+            source_name = release_info["source"]
             
-            if release_info:
-                latest_tag = release_info["tag_name"]
-                source_name = release_info["source"]
-                
-                version_file = "version"
-                if not os.path.exists(version_file):
-                    if os.path.exists("version.txt"):
-                        version_file = "version.txt"
-                    else:
-                        version_file = None
-                if version_file:
-                    with open(version_file, "r") as f:
-                        current_version = f.read().strip()
+            # Check current version
+            if repair_mode:
+                print(F.YELLOW + f"Repair mode: Forcing reinstall from {latest_tag}" + R)
+                current_version = "repair-mode"  # Force update in repair mode
+            elif os.path.exists("version"):
+                with open("version", "r") as f:
+                    current_version = f.read().strip()
+                if beta_mode:
+                    print(F.YELLOW + "Beta mode: Comparing latest commit from main branch" + R)
+            else:
+                current_version = "v0.0.0"
+                if beta_mode:
+                    print(F.YELLOW + "Beta mode: Comparing latest commit from main branch" + R)
+
+            if not repair_mode:
+                print(F.CYAN + f"Current version: {current_version}" + R)
+
+            if current_version != latest_tag or repair_mode:
+                if repair_mode:
+                    print(F.YELLOW + f"Repairing installation using: {latest_tag} (from {source_name})" + R)
+                    print("This will overwrite existing files and restore any missing components.")
                 else:
-                    current_version = "v0.0.0"
-                            
-                if current_version != latest_tag:
-                    print(Fore.YELLOW + f"New version available: {latest_tag} (from {source_name})" + Style.RESET_ALL)
+                    print(F.YELLOW + f"New version available: {latest_tag} (from {source_name})" + R)
                     print("Update Notes:")
                     print(release_info["body"])
-                    print()
-                    
-                    update = False
+                print()
                 
-                    is_non_interactive = is_container() or os.getenv('RENDER') == 'true'
-                    
-                    if is_non_interactive:
-                        print(Fore.YELLOW + "Detected non-interactive environment (Render/Container). Skipping update prompt." + Style.RESET_ALL)
-    
-                        if "--no-update" in sys.argv:
-                            print(Fore.YELLOW + "Automatic update disabled by --no-update argument." + Style.RESET_ALL)
-                            update = False
-                        else:
-                            print(Fore.YELLOW + "Continuing with automatic update (as --no-update was not used)." + Style.RESET_ALL)
-                            update = True
-                            
+                update = False
+                
+                if not is_container():
+                    if "--autoupdate" in sys.argv or repair_mode:
+                        update = True
                     else:
-                        if "--autoupdate" in sys.argv:
-                            update = True
-                        else:
-                            print("Note: If your terminal is not interactive, you can use the --autoupdate argument to skip this prompt.")
-                            try:
-                                ask = input("Do you want to update? (y/n): ").strip().lower()
-                                update = ask == "y"
-                            except EOFError:
-                                print(Fore.RED + "ERROR: EOF detected. Skipping update." + Style.RESET_ALL)
-                                update = False
+                        print("Note: If your terminal is not interactive, you can use the --autoupdate argument to skip this prompt.")
+                        ask = input("Do you want to update? (y/n): ").strip().lower()
+                        update = ask == "y"
+                else:
+                    print(F.YELLOW + "Running in a container. Skipping update prompt." + R)
+                    update = True
+                    
+                if update:
+                    # Backup requirements.txt for dependency comparison
+                    if os.path.exists("requirements.txt"):
+                        try:
+                            shutil.copy2("requirements.txt", "requirements.old")
+                        except Exception as e:
+                            print(F.YELLOW + f"Could not backup requirements.txt: {e}" + R)
+                    
+                    if os.path.exists("db") and os.path.isdir("db"):
+                        print(F.YELLOW + "Making backup of database..." + R)
                         
-                    if update:
-                        if os.path.exists("db") and os.path.isdir("db"):
-                            print(Fore.YELLOW + "Making backup of database..." + Style.RESET_ALL)
+                        db_bak_path = "db.bak"
+                        if os.path.exists(db_bak_path) and os.path.isdir(db_bak_path):
+                            if not safe_remove(db_bak_path): # Create a timestamped backup to avoid upgrading without first having a backup
+                                db_bak_path = f"db.bak_{int(datetime.now().timestamp())}"
+                                print(F.YELLOW + "WARNING: Couldn't remove db.bak folder. Making backup with timestamp instead." + R)
+
+                        try:
+                            shutil.copytree("db", db_bak_path)
+                            print(F.GREEN + f"Backup completed: db → {db_bak_path}" + R)
+                        except Exception as e:
+                            print(F.RED + f"WARNING: Failed to create database backup: {e}" + R)
+                                            
+                    download_url = release_info["download_url"]
+                    if not download_url:
+                        print(F.RED + "No download URL available for this release" + R)
+                        return
+                        
+                    print(F.YELLOW + f"Downloading update from {source_name}..." + R)
+                    safe_remove("package.zip")
+                    download_resp = requests.get(download_url, timeout=600)
+                    
+                    if download_resp.status_code == 200:
+                        with open("package.zip", "wb") as f:
+                            f.write(download_resp.content)
+                        
+                        if os.path.exists("update") and os.path.isdir("update"):
+                            if not safe_remove("update"):
+                                print(F.RED + "WARNING: Could not remove previous update directory" + R)
+                                return
                             
-                            db_bak_path = "db.bak"
-                            if os.path.exists(db_bak_path) and os.path.isdir(db_bak_path):
-                                try:
-                                    shutil.rmtree(db_bak_path)
-                                except (PermissionError, OSError) as e: # Create a timestamped backup to avoid upgrading without first having a backup
-                                    db_bak_path = f"db.bak_{int(datetime.now().timestamp())}"
-                                    print(Fore.YELLOW + f"WARNING: Couldn't remove db.bak folder: {e}. Making backup with timestamp instead." + Style.RESET_ALL)
-    
-                            try:
-                                shutil.copytree("db", db_bak_path)
-                                print(Fore.GREEN + f"Backup completed: db → {db_bak_path}" + Style.RESET_ALL)
-                            except Exception as e:
-                                print(Fore.RED + f"WARNING: Failed to create database backup: {e}" + Style.RESET_ALL)
-                                                
-                        download_url = release_info["download_url"]
-                        if not download_url:
-                            print(Fore.RED + "No download URL available for this release" + Style.RESET_ALL)
+                        try:
+                            shutil.unpack_archive("package.zip", "update", "zip")
+                        except Exception as e:
+                            print(F.RED + f"ERROR: Failed to extract update package: {e}" + R)
                             return
                             
-                        print(Fore.YELLOW + f"Downloading update from {source_name}..." + Style.RESET_ALL)
-                        safe_remove_file("package.zip")
-                        download_resp = requests.get(download_url, timeout=600)
+                        safe_remove("package.zip")
                         
-                        if download_resp.status_code == 200:
-                            with open("package.zip", "wb") as f:
-                                f.write(download_resp.content)
-                            
-                            if os.path.exists("update") and os.path.isdir("update"):
-                                try:
-                                    shutil.rmtree("update")
-                                except (PermissionError, OSError) as e:
-                                    print(Fore.RED + f"WARNING: Could not remove previous update directory: {e}" + Style.RESET_ALL)
-                                    return
+                        # Find the extracted directory (GitHub/GitLab archives create a subdirectory)
+                        update_dir = "update"
+                        extracted_items = os.listdir(update_dir)
+                        if len(extracted_items) == 1 and os.path.isdir(os.path.join(update_dir, extracted_items[0])):
+                            update_dir = os.path.join(update_dir, extracted_items[0])
+                        
+                        # Handle main.py update
+                        main_py_path = os.path.join(update_dir, "main.py")
+                        if os.path.exists(main_py_path):
+                            safe_remove("main.py.bak")
                                 
                             try:
-                                shutil.unpack_archive("package.zip", "update", "zip")
+                                if os.path.exists("main.py"):
+                                    os.rename("main.py", "main.py.bak")
                             except Exception as e:
-                                print(Fore.RED + f"ERROR: Failed to extract update package: {e}" + Style.RESET_ALL)
-                                return
-                                
-                            safe_remove_file("package.zip")
-                            
-                            if os.path.exists("update/main.py"):
-                                try:
-                                    if os.path.exists("main.py.bak"):
-                                        os.remove("main.py.bak")
-                                except Exception as _:
-                                    pass
-                                    
-                                try:
-                                    if os.path.exists("main.py"):
-                                        os.rename("main.py", "main.py.bak")
-                                except Exception as e:
-                                    print(Fore.YELLOW + f"Could not backup main.py: {e}" + Style.RESET_ALL)
-                                    try: # If backup fails, just remove the current file
-                                        if os.path.exists("main.py"):
-                                            os.remove("main.py")
-                                            print(Fore.YELLOW + "Removed current main.py" + Style.RESET_ALL)
-                                    except Exception as _:
-                                        print(Fore.RED + "Warning: Could not backup or remove current main.py" + Style.RESET_ALL)
-                                
-                                try:
-                                    shutil.copy2("update/main.py", "main.py")
-                                except Exception as e:
-                                    print(Fore.RED + f"ERROR: Could not install new main.py: {e}" + Style.RESET_ALL)
-                                    return
-                                
-                            if os.path.exists("update/requirements.txt"):                      
-                                print(Fore.YELLOW + "Installing any new requirements..." + Style.RESET_ALL)
-                                
-                                success = install_packages("update/requirements.txt", debug="--verbose" in sys.argv or "--debug" in sys.argv)
-                                safe_remove_file("update/requirements.txt")
-                                
-                                if success:
-                                    print(Fore.GREEN + "New requirements installed." + Style.RESET_ALL)
+                                print(F.YELLOW + f"Could not backup main.py: {e}" + R)
+                                # If backup fails, just remove the current file
+                                if safe_remove("main.py"):
+                                    print(F.YELLOW + "Removed current main.py" + R)
                                 else:
-                                    print(Fore.RED + "Failed to install requirements." + Style.RESET_ALL)
-                                    return
-                                
-                            for root, _, files in os.walk("update"):
-                                for file in files:
-                                    rel_path = os.path.relpath(os.path.join(root, file), "update")
-                                    dst_path = os.path.join(".", rel_path)
-                                    
-                                    os.makedirs(os.path.dirname(dst_path), exist_ok=True)
-    
-                                    if os.path.exists(dst_path):
-                                        backup_path = f"{dst_path}.bak"
-                                        safe_remove_file(backup_path)
-                                        try:
-                                            os.rename(dst_path, backup_path)
-                                        except Exception as e: # Continue anyway to try to update the file
-                                            print(Fore.YELLOW + f"Could not create backup of {dst_path}: {e}" + Style.RESET_ALL)
-                                            
-                                    try:
-                                        shutil.copy2(os.path.join(root, file), dst_path)
-                                    except Exception as e:
-                                        print(Fore.RED + f"Failed to copy {file} to {dst_path}: {e}" + Style.RESET_ALL)
+                                    print(F.RED + "Warning: Could not backup or remove current main.py" + R)
                             
                             try:
-                                shutil.rmtree("update")
+                                shutil.copy2(main_py_path, "main.py")
                             except Exception as e:
-                                print(Fore.RED + f"WARNING: update folder could not be removed: {e}. You may want to remove it manually." + Style.RESET_ALL)
+                                print(F.RED + f"ERROR: Could not install new main.py: {e}" + R)
+                                return
                             
-                            with open("version", "w") as f:
-                                f.write(latest_tag)
+                        requirements_path = os.path.join(update_dir, "requirements.txt")
+                        if os.path.exists(requirements_path):                      
+                            print(F.YELLOW + "Installing any new requirements..." + R)
                             
-                            print(Fore.GREEN + f"Update completed successfully from {source_name}." + Style.RESET_ALL)
-                            restart_bot()
-                        else:
-                            print(Fore.RED + f"Failed to download the update from {source_name}. HTTP status: {download_resp.status_code}" + Style.RESET_ALL)
-                            return  
-            else:
-                print(Fore.RED + "Failed to fetch latest release info from all sources" + Style.RESET_ALL)
+                            success = install_packages(requirements_path, debug="--verbose" in sys.argv or "--debug" in sys.argv)
+                            
+                            if success:
+                                print(F.GREEN + "New requirements installed." + R)
+                                
+                                # Copy new requirements.txt to working directory before cleanup
+                                try:
+                                    if os.path.exists("requirements.txt"):
+                                        safe_remove("requirements.txt", is_dir=False)
+                                    shutil.copy2(requirements_path, "requirements.txt")
+                                    print(F.GREEN + "Updated requirements.txt" + R)
+                                except Exception as e:
+                                    print(F.YELLOW + f"Warning: Could not update requirements.txt: {e}" + R)
+                                
+                                # Now cleanup removed packages (comparing old vs new)
+                                cleanup_removed_packages()
+                            else:
+                                print(F.RED + "Failed to install requirements." + R)
+                                return
+                            
+                            # Remove the requirements.txt from update folder after copying
+                            safe_remove(requirements_path)
+                            
+                        for root, _, files in os.walk(update_dir):
+                            for file in files:
+                                if file == "main.py":
+                                    continue
+                                    
+                                src_path = os.path.join(root, file)
+                                rel_path = os.path.relpath(src_path, update_dir)
+                                dst_path = os.path.join(".", rel_path)
+                                
+                                # Skip certain files that shouldn't be overwritten
+                                if file in ["bot_token.txt", "version"] or dst_path.startswith("db/") or dst_path.startswith("db\\"):
+                                    continue
+                                
+                                os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+
+                                # Only backup cogs Python files (.py extension)
+                                norm_path = dst_path.replace("\\", "/")
+                                is_cogs_file = (norm_path.startswith("cogs/") or norm_path.startswith("./cogs/")) and file.endswith(".py")
+                                
+                                if is_cogs_file and os.path.exists(dst_path):
+                                    # Calculate file hashes to check if backup is needed
+                                    src_hash = calculate_file_hash(src_path)
+                                    dst_hash = calculate_file_hash(dst_path)
+                                    
+                                    if src_hash != dst_hash:
+                                        # Files are different, create backup
+                                        cogs_bak_dir = "cogs.bak"
+                                        os.makedirs(cogs_bak_dir, exist_ok=True)
+                                        
+                                        # Get relative path within cogs directory
+                                        rel_path_in_cogs = os.path.relpath(dst_path, "cogs")
+                                        backup_path = os.path.join(cogs_bak_dir, rel_path_in_cogs)
+                                        
+                                        # Create subdirectories in backup if needed
+                                        os.makedirs(os.path.dirname(backup_path), exist_ok=True)
+                                        
+                                        try:
+                                            # Remove old backup if exists
+                                            if os.path.exists(backup_path):
+                                                safe_remove(backup_path, is_dir=False)
+                                            # Copy current file to backup
+                                            shutil.copy2(dst_path, backup_path)
+                                        except Exception as e:
+                                            print(F.YELLOW + f"Could not create backup of {dst_path}: {e}" + R)
+                                        
+                                try:
+                                    shutil.copy2(src_path, dst_path)
+                                except Exception as e:
+                                    print(F.RED + f"Failed to copy {file} to {dst_path}: {e}" + R)
+                        
+                        if not safe_remove("update"):
+                            print(F.RED + "WARNING: update folder could not be removed. You may want to remove it manually." + R)
+                        
+                        with open("version", "w") as f:
+                            f.write(latest_tag)
+                        
+                        print(F.GREEN + f"Update completed successfully from {source_name}." + R)
+                        
+                        restart_bot()
+                    else:
+                        print(F.RED + f"Failed to download the update from {source_name}. HTTP status: {download_resp.status_code}" + R)
+                        return  
+        else:
+            print(F.RED + "Failed to fetch latest release info from all sources" + R)
+        
+    import asyncio
+    from datetime import datetime
             
-        import asyncio
-        from datetime import datetime
-                
+    # Handle update/repair logic
+    if "--repair" in sys.argv:
         asyncio.run(check_and_update_files())
-                
-        import discord
-        from discord.ext import commands
-        import sqlite3
-    
-        class CustomBot(commands.Bot):
-            async def on_error(self, event_name, *args, **kwargs):
-                if event_name == "on_interaction":
-                    error = sys.exc_info()[1]
-                    if isinstance(error, discord.NotFound) and error.code == 10062:
-                        return
-                
-                await super().on_error(event_name, *args, **kwargs)
-    
-            async def on_command_error(self, ctx, error):
+    elif "--no-update" in sys.argv:
+        print(F.YELLOW + "Update check skipped due to --no-update flag." + R)
+    else:
+        asyncio.run(check_and_update_files())
+            
+    import discord
+    from discord.ext import commands
+    import sqlite3
+
+    class CustomBot(commands.Bot):
+        async def on_error(self, event_name, *args, **kwargs):
+            if event_name == "on_interaction":
+                error = sys.exc_info()[1]
                 if isinstance(error, discord.NotFound) and error.code == 10062:
                     return
-                await super().on_command_error(ctx, error)
-    
-        intents = discord.Intents.default()
-        intents.message_content = True
-    
-        bot = CustomBot(command_prefix="/", intents=intents)
-    
-        init(autoreset=True)
-    
-        token_file = "bot_token.txt"
-        if not os.path.exists(token_file):
-            bot_token = os.getenv("DISCORD_TOKEN")
-            with open(token_file, "w") as f:
-                f.write(bot_token)
-        else:
-            with open(token_file, "r") as f:
-                bot_token = f.read().strip()
-    
-        if not os.path.exists("db"):
-            os.makedirs("db")
             
-            print(Fore.GREEN + "db folder created" + Style.RESET_ALL)
-    
-        databases = {
-            "conn_alliance": "db/alliance.sqlite",
-            "conn_giftcode": "db/giftcode.sqlite",
-            "conn_changes": "db/changes.sqlite",
-            "conn_users": "db/users.sqlite",
-            "conn_settings": "db/settings.sqlite",
-        }
-    
-        connections = {name: sqlite3.connect(path) for name, path in databases.items()}
-    
-        print(Fore.GREEN + "Database connections have been successfully established." + Style.RESET_ALL)
-    
-        def create_tables():
-            with connections["conn_changes"] as conn_changes:
-                conn_changes.execute("""CREATE TABLE IF NOT EXISTS nickname_changes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                    fid INTEGER, 
-                    old_nickname TEXT, 
-                    new_nickname TEXT, 
-                    change_date TEXT
-                )""")
-                
-                conn_changes.execute("""CREATE TABLE IF NOT EXISTS furnace_changes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                    fid INTEGER, 
-                    old_furnace_lv INTEGER, 
-                    new_furnace_lv INTEGER, 
-                    change_date TEXT
-                )""")
-    
-            with connections["conn_settings"] as conn_settings:
-                conn_settings.execute("""CREATE TABLE IF NOT EXISTS botsettings (
-                    id INTEGER PRIMARY KEY, 
-                    channelid INTEGER, 
-                    giftcodestatus TEXT 
-                )""")
-                
-                conn_settings.execute("""CREATE TABLE IF NOT EXISTS admin (
-                    id INTEGER PRIMARY KEY, 
-                    is_initial INTEGER
-                )""")
-    
-            with connections["conn_users"] as conn_users:
-                conn_users.execute("""CREATE TABLE IF NOT EXISTS users (
-                    fid INTEGER PRIMARY KEY, 
-                    nickname TEXT, 
-                    furnace_lv INTEGER DEFAULT 0, 
-                    kid INTEGER, 
-                    stove_lv_content TEXT, 
-                    alliance TEXT
-                )""")
-    
-            with connections["conn_giftcode"] as conn_giftcode:
-                conn_giftcode.execute("""CREATE TABLE IF NOT EXISTS gift_codes (
-                    giftcode TEXT PRIMARY KEY, 
-                    date TEXT
-                )""")
-                
-                conn_giftcode.execute("""CREATE TABLE IF NOT EXISTS user_giftcodes (
-                    fid INTEGER, 
-                    giftcode TEXT, 
-                    status TEXT, 
-                    PRIMARY KEY (fid, giftcode),
-                    FOREIGN KEY (giftcode) REFERENCES gift_codes (giftcode)
-                )""")
-    
-            with connections["conn_alliance"] as conn_alliance:
-                conn_alliance.execute("""CREATE TABLE IF NOT EXISTS alliancesettings (
-                    alliance_id INTEGER PRIMARY KEY, 
-                    channel_id INTEGER, 
-                    interval INTEGER
-                )""")
-                
-                conn_alliance.execute("""CREATE TABLE IF NOT EXISTS alliance_list (
-                    alliance_id INTEGER PRIMARY KEY, 
-                    name TEXT
-                )""")
-    
-            print(Fore.GREEN + "All tables checked." + Style.RESET_ALL)
-    
-        create_tables()
-    
-        async def load_cogs():
-            cogs = ["olddb", "control", "alliance", "alliance_member_operations", "bot_operations", "logsystem", "support_operations", "gift_operations", "changes", "w", "wel", "other_features", "bear_trap", "id_channel", "backup_operations", "bear_trap_editor"]
+            await super().on_error(event_name, *args, **kwargs)
+
+        async def on_command_error(self, ctx, error):
+            if isinstance(error, discord.NotFound) and error.code == 10062:
+                return
+            await super().on_command_error(ctx, error)
+
+    intents = discord.Intents.default()
+    intents.message_content = True
+
+    bot = CustomBot(command_prefix="/", intents=intents)
+
+    init(autoreset=True)
+
+    token_file = "bot_token.txt"
+    if not os.path.exists(token_file):
+        bot_token = os.getenv("DISCORD_TOKEN")
+        with open(token_file, "w") as f:
+            f.write(bot_token)
+    else:
+        with open(token_file, "r") as f:
+            bot_token = f.read().strip()
+
+    if not os.path.exists("db"):
+        os.makedirs("db")
+        
+        print(F.GREEN + "db folder created" + R)
+
+    databases = {
+        "conn_alliance": "db/alliance.sqlite",
+        "conn_giftcode": "db/giftcode.sqlite",
+        "conn_changes": "db/changes.sqlite",
+        "conn_users": "db/users.sqlite",
+        "conn_settings": "db/settings.sqlite",
+    }
+
+    connections = {name: sqlite3.connect(path) for name, path in databases.items()}
+
+    print(F.GREEN + "Database connections have been successfully established." + R)
+
+    def create_tables():
+        with connections["conn_changes"] as conn_changes:
+            conn_changes.execute("""CREATE TABLE IF NOT EXISTS nickname_changes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                fid INTEGER, 
+                old_nickname TEXT, 
+                new_nickname TEXT, 
+                change_date TEXT
+            )""")
             
-            failed_cogs = []
+            conn_changes.execute("""CREATE TABLE IF NOT EXISTS furnace_changes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                fid INTEGER, 
+                old_furnace_lv INTEGER, 
+                new_furnace_lv INTEGER, 
+                change_date TEXT
+            )""")
+
+        with connections["conn_settings"] as conn_settings:
+            conn_settings.execute("""CREATE TABLE IF NOT EXISTS botsettings (
+                id INTEGER PRIMARY KEY, 
+                channelid INTEGER, 
+                giftcodestatus TEXT 
+            )""")
             
-            for cog in cogs:
-                try:
-                    await bot.load_extension(f"cogs.{cog}")
-                except Exception as e:
-                    print(f"✗ Failed to load cog {cog}: {e}")
-                    failed_cogs.append(cog)
+            conn_settings.execute("""CREATE TABLE IF NOT EXISTS admin (
+                id INTEGER PRIMARY KEY, 
+                is_initial INTEGER
+            )""")
+
+        with connections["conn_users"] as conn_users:
+            conn_users.execute("""CREATE TABLE IF NOT EXISTS users (
+                fid INTEGER PRIMARY KEY, 
+                nickname TEXT, 
+                furnace_lv INTEGER DEFAULT 0, 
+                kid INTEGER, 
+                stove_lv_content TEXT, 
+                alliance TEXT
+            )""")
+
+        with connections["conn_giftcode"] as conn_giftcode:
+            conn_giftcode.execute("""CREATE TABLE IF NOT EXISTS gift_codes (
+                giftcode TEXT PRIMARY KEY, 
+                date TEXT
+            )""")
             
-            if failed_cogs: # If any cogs failed, try to download missing files from the same release
-                print(f"Attempting to recover {len(failed_cogs)} missing cog files...")
-                
-                # Get current version to download matching source files
-                current_version = "v0.0.0"
-                if os.path.exists("version"):
-                    with open("version", "r") as f:
-                        current_version = f.read().strip()
-                
-                # Try to get the release info for current version
-                release_info = None
-                for source in UPDATE_SOURCES:
-                    try:
-                        if source['name'] == "GitHub":
-                            response = requests.get(source['api_url'], timeout=30)
-                            if response.status_code == 200:
-                                data = response.json()
-                                if data["tag_name"] == current_version:
-                                    release_info = {
-                                        "download_url": f"https://github.com/whiteout-project/bot/archive/refs/tags/{current_version}.zip",
-                                        "source": source['name']
-                                    }
-                                    break
-                        elif source['name'] == "GitLab":
-                            response = requests.get(source['api_url'], timeout=30)
-                            if response.status_code == 200:
-                                releases = response.json()
-                                for release in releases:
-                                    if release['tag_name'] == current_version:
-                                        release_info = {
-                                            "download_url": f"https://gitlab.whiteout-bot.com/whiteout-project/bot/-/archive/{current_version}/bot-{current_version}.zip",
-                                            "source": source['name']
-                                        }
-                                        break
-                                if release_info:
-                                    break
-                    except:
-                        continue
-                
-                if release_info and release_info.get("download_url"):
-                    try:
-                        print(f"Downloading missing files from {release_info['source']}...")
-                        download_resp = requests.get(release_info["download_url"], timeout=300)
-                        
-                        if download_resp.status_code == 200:
-                            with open("temp_recovery.zip", "wb") as f:
-                                f.write(download_resp.content)
-                            
-                            import zipfile
-                            with zipfile.ZipFile("temp_recovery.zip", 'r') as zip_ref:
-                                # Extract cog files
-                                for file_info in zip_ref.namelist():
-                                    if "/cogs/" in file_info and file_info.endswith(".py"):
-                                        try: # Strip archive prefix if present
-                                            if file_info.startswith("bot-"):
-                                                target_path = file_info.split("/", 1)[1]
-                                            else:
-                                                target_path = file_info
-                                            
-                                            with zip_ref.open(file_info) as source:
-                                                os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                                                with open(target_path, 'wb') as target:
-                                                    target.write(source.read())
-                                        except Exception as e:
-                                            print(f"Failed to extract {file_info}: {e}")
-                            
-                            safe_remove_file("temp_recovery.zip")
-                            
-                            # Retry loading failed cogs
-                            retry_failed = []
-                            for cog in failed_cogs:
-                                try:
-                                    await bot.load_extension(f"cogs.{cog}")
-                                except Exception as e:
-                                    retry_failed.append(cog)
-                            
-                            if retry_failed:
-                                print(f"⚠️ {len(retry_failed)} cogs still failed to load: {', '.join(retry_failed)}")
-                                print("Bot will continue with reduced functionality.")
-                            else:
-                                print("✓ All cogs recovered successfully!")
-                                
-                        else:
-                            print(f"Failed to download recovery files: HTTP {download_resp.status_code}")
-                            
-                    except Exception as e:
-                        print(f"Error during cog recovery: {e}")
-                        print("Bot will continue with reduced functionality.")
-                else:
-                    print("Could not find matching release for recovery. Bot will continue with reduced functionality.")
-    
-        @bot.event
-        async def on_ready():
+            conn_giftcode.execute("""CREATE TABLE IF NOT EXISTS user_giftcodes (
+                fid INTEGER, 
+                giftcode TEXT, 
+                status TEXT, 
+                PRIMARY KEY (fid, giftcode),
+                FOREIGN KEY (giftcode) REFERENCES gift_codes (giftcode)
+            )""")
+
+        with connections["conn_alliance"] as conn_alliance:
+            conn_alliance.execute("""CREATE TABLE IF NOT EXISTS alliancesettings (
+                alliance_id INTEGER PRIMARY KEY, 
+                channel_id INTEGER, 
+                interval INTEGER
+            )""")
+            
+            conn_alliance.execute("""CREATE TABLE IF NOT EXISTS alliance_list (
+                alliance_id INTEGER PRIMARY KEY, 
+                name TEXT
+            )""")
+
+        print(F.GREEN + "All tables checked." + R)
+
+    create_tables()
+
+    async def load_cogs():
+        cogs = ["olddb", "control", "alliance", "alliance_member_operations", "bot_operations", "logsystem", "support_operations", "gift_operations", "changes", "w", "wel", "other_features", "bear_trap", "bear_trap_schedule", "id_channel", "backup_operations", "bear_trap_editor", "attendance", "attendance_report", "minister_schedule", "minister_menu", "minister_archive", "registration"]
+
+        failed_cogs = []
+        
+        for cog in cogs:
             try:
-                print(f"{Fore.GREEN}Logged in as {Fore.CYAN}{bot.user}{Style.RESET_ALL}")
-                await bot.tree.sync()
+                await bot.load_extension(f"cogs.{cog}")
             except Exception as e:
-                print(f"Error syncing commands: {e}")
+                print(f"✗ Failed to load cog {cog}: {e}")
+                failed_cogs.append(cog)
+        
+        if failed_cogs:
+            print(F.RED + f"\n⚠️  {len(failed_cogs)} cog(s) failed to load:" + R)
+            for cog in failed_cogs:
+                print(F.YELLOW + f"   • {cog}" + R)
+            print(F.YELLOW + "\nThe bot will continue with reduced functionality." + R)
+            print(F.YELLOW + "To fix missing or corrupted files, run: " + F.GREEN + "python main.py --repair" + R)
+            print(F.YELLOW + "This will download and restore all files from the latest release.\n" + R)
+
+    @bot.event
+    async def on_ready():
+        try:
+            print(f"{F.GREEN}Logged in as {F.CYAN}{bot.user}{R}")
+            await bot.tree.sync()
+        except Exception as e:
+            print(f"Error syncing commands: {e}")
+
+def run_bot_application():
+    import os
+    import sys
+    import asyncio
     
-        async def main():
-            await load_cogs()
-            
-            await bot.start(bot_token)
-        asyncio.run(main())
+    bot_token = os.getenv("DISCORD_BOT_TOKEN")
+    if not bot_token:
+        print("FATAL: DISCORD_BOT_TOKEN environment variable not found.")
+        sys.exit(1)
+
+    async def main_async():
+        
+        await load_cogs() 
+        
+        await bot.start(bot_token)
+
+    main.run_bot_application()
