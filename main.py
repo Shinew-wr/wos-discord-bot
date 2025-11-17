@@ -808,7 +808,7 @@ if __name__ == "__main__":
 
 bot = CustomBot(command_prefix="/", intents=intents)
 
-    init(autoreset=True)
+init(autoreset=True)
 
     token_file = "bot_token.txt"
     if not os.path.exists(token_file):
