@@ -3,19 +3,25 @@ import asyncio
 import os
 import sys
 
+# 1. 導入您的 Discord Bot 程式碼
 import main 
 
+# 2. 從 keep_alive 載入 Flask 實例 (Health Check 伺服器)
 from keep_alive import app as application
 
+# 3. 定義 Bot 啟動邏輯
 def start_bot_thread():
     print("Starting Discord Bot in a background thread...")
     try:
+        # 將 --no-update 參數加入系統參數列表，確保 Bot 不會嘗試自動更新
         if "--no-update" not in sys.argv:
             sys.argv.append("--no-update")
         
+        # 執行 main.py 底部原本的 Bot 啟動邏輯 main.run_bot_application()
         main.run_bot_application()
         
     except Exception as e:
+        # 如果 Bot 啟動失敗，強制退出 Worker，讓 Render 平台知道服務已停止
         print(f"FATAL: Discord Bot thread failed to start: {e}")
         os._exit(1)
 
