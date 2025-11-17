@@ -939,7 +939,7 @@ def run_bot_application():
     import sys
     import asyncio
     
-    bot_token = os.getenv("DISCORD_BOT_TOKEN")
+    bot_token = os.getenv("DISCORD_TOKEN")
     if not bot_token:
         print("FATAL: DISCORD_BOT_TOKEN environment variable not found.")
         sys.exit(1)
