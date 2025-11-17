@@ -945,9 +945,7 @@ def run_bot_application():
         sys.exit(1)
 
     async def main_async():
-        
         await load_cogs() 
-        
         await bot.start(bot_token)
 
-    main.run_bot_application()
+    asyncio.run(main_async())
