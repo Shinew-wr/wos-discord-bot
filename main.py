@@ -836,82 +836,82 @@ init(autoreset=True)
 
     print(F.GREEN + "Database connections have been successfully established." + R)
 
-    def create_tables():
-        with connections["conn_changes"] as conn_changes:
-            conn_changes.execute("""CREATE TABLE IF NOT EXISTS nickname_changes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                fid INTEGER, 
-                old_nickname TEXT, 
-                new_nickname TEXT, 
-                change_date TEXT
-            )""")
+def create_tables():
+    with connections["conn_changes"] as conn_changes:
+        conn_changes.execute("""CREATE TABLE IF NOT EXISTS nickname_changes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, 
+            fid INTEGER, 
+            old_nickname TEXT, 
+            new_nickname TEXT, 
+            change_date TEXT
+         )""")
             
-            conn_changes.execute("""CREATE TABLE IF NOT EXISTS furnace_changes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                fid INTEGER, 
-                old_furnace_lv INTEGER, 
-                new_furnace_lv INTEGER, 
-                change_date TEXT
-            )""")
+        conn_changes.execute("""CREATE TABLE IF NOT EXISTS furnace_changes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, 
+            fid INTEGER, 
+            old_furnace_lv INTEGER, 
+            new_furnace_lv INTEGER, 
+            change_date TEXT
+        )""")
 
-        with connections["conn_settings"] as conn_settings:
-            conn_settings.execute("""CREATE TABLE IF NOT EXISTS botsettings (
-                id INTEGER PRIMARY KEY, 
-                channelid INTEGER, 
-                giftcodestatus TEXT 
-            )""")
+    with connections["conn_settings"] as conn_settings:
+        conn_settings.execute("""CREATE TABLE IF NOT EXISTS botsettings (
+            id INTEGER PRIMARY KEY, 
+            channelid INTEGER, 
+            giftcodestatus TEXT 
+        )""")
             
-            conn_settings.execute("""CREATE TABLE IF NOT EXISTS admin (
-                id INTEGER PRIMARY KEY, 
-                is_initial INTEGER
-            )""")
+        conn_settings.execute("""CREATE TABLE IF NOT EXISTS admin (
+            id INTEGER PRIMARY KEY, 
+            is_initial INTEGER
+        )""")
 
-        with connections["conn_users"] as conn_users:
-            conn_users.execute("""CREATE TABLE IF NOT EXISTS users (
-                fid INTEGER PRIMARY KEY, 
-                nickname TEXT, 
-                furnace_lv INTEGER DEFAULT 0, 
-                kid INTEGER, 
-                stove_lv_content TEXT, 
-                alliance TEXT
-            )""")
+    with connections["conn_users"] as conn_users:
+        conn_users.execute("""CREATE TABLE IF NOT EXISTS users (
+            fid INTEGER PRIMARY KEY, 
+            nickname TEXT, 
+            furnace_lv INTEGER DEFAULT 0, 
+            kid INTEGER, 
+            stove_lv_content TEXT, 
+            alliance TEXT
+        )""")
 
-        with connections["conn_giftcode"] as conn_giftcode:
-            conn_giftcode.execute("""CREATE TABLE IF NOT EXISTS gift_codes (
-                giftcode TEXT PRIMARY KEY, 
-                date TEXT
-            )""")
+    with connections["conn_giftcode"] as conn_giftcode:
+        conn_giftcode.execute("""CREATE TABLE IF NOT EXISTS gift_codes (
+            giftcode TEXT PRIMARY KEY, 
+            date TEXT
+        )""")
             
-            conn_giftcode.execute("""CREATE TABLE IF NOT EXISTS user_giftcodes (
-                fid INTEGER, 
-                giftcode TEXT, 
-                status TEXT, 
-                PRIMARY KEY (fid, giftcode),
-                FOREIGN KEY (giftcode) REFERENCES gift_codes (giftcode)
-            )""")
+        conn_giftcode.execute("""CREATE TABLE IF NOT EXISTS user_giftcodes (
+            fid INTEGER, 
+            giftcode TEXT, 
+            status TEXT, 
+            PRIMARY KEY (fid, giftcode),
+            FOREIGN KEY (giftcode) REFERENCES gift_codes (giftcode)
+        )""")
 
-        with connections["conn_alliance"] as conn_alliance:
-            conn_alliance.execute("""CREATE TABLE IF NOT EXISTS alliancesettings (
-                alliance_id INTEGER PRIMARY KEY, 
-                channel_id INTEGER, 
-                interval INTEGER
-            )""")
+    with connections["conn_alliance"] as conn_alliance:
+        conn_alliance.execute("""CREATE TABLE IF NOT EXISTS alliancesettings (
+            alliance_id INTEGER PRIMARY KEY, 
+            channel_id INTEGER, 
+            interval INTEGER
+        )""")
             
-            conn_alliance.execute("""CREATE TABLE IF NOT EXISTS alliance_list (
-                alliance_id INTEGER PRIMARY KEY, 
-                name TEXT
-            )""")
+        conn_alliance.execute("""CREATE TABLE IF NOT EXISTS alliance_list (
+            alliance_id INTEGER PRIMARY KEY, 
+            name TEXT
+           )""")
 
-        print(F.GREEN + "All tables checked." + R)
+    print(F.GREEN + "All tables checked." + R)
 
-    create_tables()
+create_tables()
 
-    async def load_cogs():
-        cogs = ["olddb", "control", "alliance", "alliance_member_operations", "bot_operations", "logsystem", "support_operations", "gift_operations", "changes", "w", "wel", "other_features", "bear_trap", "bear_trap_schedule", "id_channel", "backup_operations", "bear_trap_editor", "attendance", "attendance_report", "minister_schedule", "minister_menu", "minister_archive", "registration"]
+async def load_cogs():
+    cogs = ["olddb", "control", "alliance", "alliance_member_operations", "bot_operations", "logsystem", "support_operations", "gift_operations", "changes", "w", "wel", "other_features", "bear_trap", "bear_trap_schedule", "id_channel", "backup_operations", "bear_trap_editor", "attendance", "attendance_report", "minister_schedule", "minister_menu", "minister_archive", "registration"]
 
-        failed_cogs = []
+    failed_cogs = []
         
-        for cog in cogs:
+    for cog in cogs:
             try:
                 await bot.load_extension(f"cogs.{cog}")
             except Exception as e:
