@@ -938,6 +938,8 @@ def run_bot_application():
     import os
     import sys
     import asyncio
+
+    global bot
     
     bot_token = os.getenv("DISCORD_TOKEN")
     if not bot_token:
