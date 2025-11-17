@@ -5,7 +5,7 @@ import sys
 
 # 1. 導入您的 Discord Bot 程式碼
 # 這裡保留導入，讓 Gunicorn 知道 main 模組存在。
-import main 
+import main as bot_main
 
 # 2. 從 keep_alive 載入 Flask 實例 (Health Check 伺服器)
 from keep_alive import app as application
