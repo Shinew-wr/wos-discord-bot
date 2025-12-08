@@ -1,7 +1,7 @@
 import subprocess
 import sys
 import os
-
+import asyncio
 
 def is_container() -> bool:
     return os.path.exists("/.dockerenv") or os.path.exists("/var/run/secrets/kubernetes.io")
