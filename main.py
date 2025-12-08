@@ -892,6 +892,24 @@ def run_bot_application():
     
         async def main():
             await load_cogs()
-            
-            await bot.start(bot_token)
-        asyncio.run(main())
+            try:
+                # 嘗試連線到 Discord
+                await bot.start(bot_token) 
+            except discord.LoginFailure:
+                print(Fore.RED + "🚨 致命錯誤：Discord Token 登入失敗！" + Style.RESET_ALL)
+                print(Fore.RED + "請檢查 Railway 上的 DISCORD_TOKEN 變數是否正確。" + Style.RESET_ALL)
+                sys.exit(1) # Token 錯誤，強制終止
+            except discord.HTTPException as e:
+                print(Fore.RED + f"🚨 致命錯誤：Discord HTTP 錯誤 ({e.status})！" + Style.RESET_ALL)
+                print(Fore.RED + "常見原因：Intent 權限不足 或 API 連線問題。" + Style.RESET_ALL)
+                sys.exit(1) # 連線失敗，強制終止
+            except Exception as e:
+                # 捕獲其他所有可能的錯誤
+                print(Fore.RED + f"🚨 致命錯誤：Bot 啟動時發生其他錯誤: {e}" + Style.RESET_ALL)
+                # 印出完整的錯誤追溯
+                import traceback
+                traceback.print_exc()
+                sys.exit(1)
+
+# 執行 main 函數
+asyncio.run(main())
