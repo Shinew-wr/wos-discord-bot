@@ -911,5 +911,8 @@ def run_bot_application():
                 traceback.print_exc()
                 sys.exit(1)
 
-# 執行 main 函數
-asyncio.run(main())
+        # 執行 main 函數
+        asyncio.run(main())
+
+if __name__ == "__main__": 
+    run_bot_application() 
