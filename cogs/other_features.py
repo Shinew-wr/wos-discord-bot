@@ -15,7 +15,7 @@ class OtherFeatures(commands.Cog):
                     "**Available Operations**\n"
                     "━━━━━━━━━━━━━━━━━━━━━━\n"
                     "📣 **Notification System**\n"
-                    "└ Time notification system\n"
+                    "└ Event notification system\n"
                     "└ Not just for Bear! Use it for any event:\n"
                     "   Bear - KE - Frostfire - CJ and everything else\n"
                     "└ Add unlimited notifications\n\n"
@@ -23,10 +23,21 @@ class OtherFeatures(commands.Cog):
                     "└ Create and manage ID channels\n"
                     "└ Automatic ID verification system\n"
                     "└ Custom channel settings\n\n"
+                    "📝 **Registration System**\n"
+                    "└ Enable/disable user self-registration (Global Admin only)\n"
+                    "└ Users can /register to add themselves based on ID\n\n"
+                    "📋 **Attendance System**\n"
+                    "└ Manage event attendance records\n"
+                    "└ View detailed attendance reports\n"
+                    "└ Export attendance data to CSV, TSV, HTML\n\n"
+                    "🏛️ **Minister Scheduling**\n"
+                    "└ Manage your state minister appointments\n"
+                    "└ Schedule Construction, Research, Training days\n"
+                    "└ Configure minister log channels\n\n"
                     "💾 **Backup System**\n"
                     "└ Automatic database backup\n"
-                    "└ Secure backup storage\n"
-                    "└ Only for Global Admins\n\n"
+                    "└ Send backups to your DMs\n"
+                    "└ Only for Global Admin\n"
                     "━━━━━━━━━━━━━━━━━━━━━━"
                 ),
                 color=discord.Color.blue()
@@ -101,11 +112,35 @@ class OtherFeaturesView(discord.ui.View):
             )
 
     @discord.ui.button(
+        label="Minister Scheduling",
+        emoji="🏛️",
+        style=discord.ButtonStyle.primary,
+        custom_id="minister_channels",
+        row=1
+    )
+    async def minister_channels_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        try:
+            minister_menu_cog = self.cog.bot.get_cog("MinisterMenu")
+            if minister_menu_cog:
+                await minister_menu_cog.show_minister_channel_menu(interaction)
+            else:
+                await interaction.response.send_message(
+                    "❌ Minister Scheduling module not found.",
+                    ephemeral=True
+                )
+        except Exception as e:
+            print(f"Error loading Minister Scheduling menu: {e}")
+            await interaction.response.send_message(
+                "❌ An error occurred while loading Minister Scheduling menu.",
+                ephemeral=True
+            )
+
+    @discord.ui.button(
         label="Backup System",
         emoji="💾",
         style=discord.ButtonStyle.primary,
         custom_id="backup_system",
-        row=1
+        row=2
     )
     async def backup_system_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
@@ -121,6 +156,54 @@ class OtherFeaturesView(discord.ui.View):
             print(f"Error loading Backup System menu: {e}")
             await interaction.response.send_message(
                 "❌ An error occurred while loading Backup System menu.",
+                ephemeral=True
+            )
+            
+    @discord.ui.button(
+        label="Registration System",
+        emoji="📝",
+        style=discord.ButtonStyle.primary,
+        custom_id="registration_system",
+        row=0
+    )
+    async def registration_system_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        try:
+            register_cog = self.cog.bot.get_cog("Register")
+            if register_cog:
+                await register_cog.show_settings_menu(interaction)
+            else:
+                await interaction.response.send_message(
+                    "❌ Registration System module not found.",
+                    ephemeral=True
+                )
+        except Exception as e:
+            print(f"Error loading Registration System menu: {e}")
+            await interaction.response.send_message(
+                "❌ An error occurred while loading Registration System menu.",
+                ephemeral=True
+            )
+
+    @discord.ui.button(
+        label="Attendance System",
+        emoji="📋",
+        style=discord.ButtonStyle.primary,
+        custom_id="attendance_system",
+        row=1
+    )
+    async def attendance_system_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        try:
+            attendance_cog = self.cog.bot.get_cog("Attendance")
+            if attendance_cog:
+                await attendance_cog.show_attendance_menu(interaction)
+            else:
+                await interaction.response.send_message(
+                    "❌ Attendance System module not found.",
+                    ephemeral=True
+                )
+        except Exception as e:
+            print(f"Error loading Attendance System menu: {e}")
+            await interaction.response.send_message(
+                "❌ An error occurred while loading Attendance System menu.",
                 ephemeral=True
             )
 
@@ -144,4 +227,4 @@ class OtherFeaturesView(discord.ui.View):
             )
 
 async def setup(bot):
-    await bot.add_cog(OtherFeatures(bot)) 
+    await bot.add_cog(OtherFeatures(bot))
