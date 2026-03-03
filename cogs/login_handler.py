@@ -7,6 +7,9 @@ import os
 from datetime import datetime
 from typing import Optional, List, Dict, Callable
 
+from .pimp_my_bot import theme
+from .browser_headers import get_headers
+
 class LoginHandler:
     """
     Centralized handler for player login/check operations.
@@ -107,8 +110,8 @@ class LoginHandler:
                 form = f"fid={test_fid}&time={current_time}"
                 sign = hashlib.md5((form + self.secret).encode('utf-8')).hexdigest()
                 form = f"sign={sign}&{form}"
-                headers = {'Content-Type': 'application/x-www-form-urlencoded'}
-                
+                headers = get_headers('https://wos-giftcode-api.centurygame.com')
+
                 async with session.post(self.api1_url, headers=headers, data=form, timeout=5) as response:
                     # API is available if we get 200 (success) or 429 (rate limit)
                     api_status["api1_available"] = response.status in [200, 429]
@@ -123,8 +126,8 @@ class LoginHandler:
                 form = f"fid={test_fid}&time={current_time}"
                 sign = hashlib.md5((form + self.secret).encode('utf-8')).hexdigest()
                 form = f"sign={sign}&{form}"
-                headers = {'Content-Type': 'application/x-www-form-urlencoded'}
-                
+                headers = get_headers('https://gof-report-api-formal.centurygame.com')
+
                 async with session.post(self.api2_url, headers=headers, data=form, timeout=5) as response:
                     api_status["api2_available"] = response.status in [200, 429]
                     self.log_message(f"API2 availability check: Status {response.status}")
@@ -254,7 +257,7 @@ class LoginHandler:
         form = f"fid={fid}&time={current_time}"
         sign = hashlib.md5((form + self.secret).encode('utf-8')).hexdigest()
         form = f"sign={sign}&{form}"
-        headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+        headers = get_headers(api_url.rsplit('/api/', 1)[0])
         
         try:
             # Use proxy if provided and main request fails
@@ -281,14 +284,14 @@ class LoginHandler:
                                 'error_message': None
                             }
                         
-                        # Check if this is specifically error 40004 (role not exist)
-                        elif data.get('err_code') == 40004:
+                        # Check if this is a "player not found" error (40004 or 40001 with "role not exist")
+                        elif data.get('err_code') == 40004 or (data.get('err_code') == 40001 and 'role not exist' in str(data.get('msg', '')).lower()):
                             return {
                                 'status': 'not_found',
                                 'data': None,
                                 'api_used': api_num,
                                 'error_message': 'Player does not exist (role not exist)',
-                                'err_code': 40004
+                                'err_code': data.get('err_code')
                             }
                         
                         # Other cases where data is empty but not error 40004
@@ -381,24 +384,31 @@ class LoginHandler:
         
         return results
     
-    def get_mode_text(self) -> str:
-        """Get human-readable description of current API mode"""
+    def get_mode_text(self, for_console: bool = False) -> str:
+        """Get human-readable description of current API mode.
+
+        Args:
+            for_console: If True, omit emoji icons for clean console output
+        """
         if self.dual_api_mode:
-            return "✅ Dual-API mode active (1 member/second)"
+            prefix = "" if for_console else f"{theme.verifiedIcon} "
+            return f"{prefix}Dual-API mode active (1 member/second)"
         elif self.available_apis:
             api_num = self.available_apis[0]
-            return f"⚠️ Single-API mode (1 member/2 seconds) - API {3-api_num} unavailable"
+            prefix = "" if for_console else f"{theme.warnIcon} "
+            return f"{prefix}Single-API mode (1 member/2 seconds) - API {3-api_num} unavailable"
         else:
-            return "❌ No APIs available"
+            prefix = "" if for_console else f"{theme.deniedIcon} "
+            return f"{prefix}No APIs available"
     
     def get_processing_rate(self) -> str:
         """Get user-friendly processing rate"""
         if self.dual_api_mode:
-            return "⚡ Rate: 1 member/second"
+            return f"{theme.boltIcon} Rate: 1 member/second"
         elif self.available_apis:
-            return "⚡ Rate: 1 member/2 seconds"
+            return f"{theme.boltIcon} Rate: 1 member/2 seconds"
         else:
-            return "❌ Service unavailable"
+            return f"{theme.deniedIcon} Service unavailable"
     
     def get_rate_limit_info(self) -> Dict[str, int]:
         """Get current rate limit information"""
@@ -473,7 +483,7 @@ class LoginHandler:
                     if operation.get('interaction'):
                         try:
                             await operation['interaction'].followup.send(
-                                f"❌ Operation failed: {str(e)}", ephemeral=True
+                                f"{theme.deniedIcon} Operation failed: {str(e)}", ephemeral=True
                             )
                         except:
                             pass

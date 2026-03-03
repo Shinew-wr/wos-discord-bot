@@ -123,17 +123,17 @@ EVENT_CONFIG = {
         "image_url": "",
         "thumbnail_url": "https://i.imgur.com/HUwpmTd.png",
     },
-    "Mercenary Bosses": {
+    "Mercenary Prestige": {
         "emoji": "🗡️",
         "duration_minutes": 60,  # Each boss session ~1 hour
-        "schedule_type": "global_4weekly_multiday",
-        "fixed_days": "Every 4 weeks, 3-day window",
+        "schedule_type": "global_3weekly_multiday",
+        "fixed_days": "Every 3 weeks, 3-day window",
         "reference_date": "2025-12-06",
-        "cycle_weeks": 4,
+        "cycle_weeks": 3,
         "event_duration_days": 3,
         "time_slots": "5min",
         "max_instances": 5,  # Up to 5 mercenary bosses
-        "description": "%n is spawning in %t. Prepare to send only one march as instructed!",
+        "description": "%n boss is spawning in %t. Prepare to send only one march as instructed!",
         "default_notification_type": 2,
         "image_url": "",
         "thumbnail_url": "https://i.imgur.com/zb6y3Dg.png",
@@ -304,13 +304,32 @@ def calculate_next_occurrence(event_type: str, from_date: Optional[datetime] = N
 
         return next_occurrence
 
-    # 4-weekly events (Sunfire Castle, SvS, Mercenary Bosses)
+    # 4-weekly events (Sunfire Castle, SvS)
     if schedule_type in ["global_4weekly", "global_4weekly_alt", "global_4weekly_multiday"]:
         reference = datetime.strptime(config["reference_date"], "%Y-%m-%d")
         reference = pytz.UTC.localize(reference)
 
         weeks_diff = (from_date - reference).days // 7
         cycle_weeks = 4
+
+        if weeks_diff < 0:
+            return reference
+
+        cycles_passed = weeks_diff // cycle_weeks
+        next_occurrence = reference + timedelta(weeks=cycles_passed * cycle_weeks)
+
+        if next_occurrence <= from_date:
+            next_occurrence += timedelta(weeks=cycle_weeks)
+
+        return next_occurrence
+
+    # 3-weekly events (Mercenary Prestige)
+    if schedule_type == "global_3weekly_multiday":
+        reference = datetime.strptime(config["reference_date"], "%Y-%m-%d")
+        reference = pytz.UTC.localize(reference)
+
+        weeks_diff = (from_date - reference).days // 7
+        cycle_weeks = 3
 
         if weeks_diff < 0:
             return reference
@@ -426,5 +445,7 @@ def format_event_schedule_description(event_type: str) -> str:
         return f"Every 2 weeks on {config.get('fixed_days', 'schedule')}"
     elif schedule_type in ["global_monthly", "global_4weekly", "global_4weekly_alt"]:
         return config.get("fixed_days", "Monthly event")
+    elif schedule_type == "global_3weekly_multiday":
+        return config.get("fixed_days", "Every 3 weeks")
 
     return "Event schedule varies"

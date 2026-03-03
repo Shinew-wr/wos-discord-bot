@@ -12,6 +12,8 @@ from bear_event_types import (
     get_event_icon, get_event_config, calculate_next_occurrence, validate_time_slot,
     calculate_crazy_joe_dates
 )
+from .permission_handler import PermissionManager
+from .pimp_my_bot import theme
 
 class BearTrapWizard(commands.Cog):
     def __init__(self, bot):
@@ -42,15 +44,10 @@ class BearTrapWizard(commands.Cog):
 
     async def check_admin(self, interaction: discord.Interaction) -> bool:
         """Check if user is an admin"""
-        conn = sqlite3.connect('db/settings.sqlite')
-        cursor = conn.cursor()
-        cursor.execute("SELECT id FROM admin WHERE id = ?", (interaction.user.id,))
-        is_admin = cursor.fetchone() is not None
-        conn.close()
-
+        is_admin, _ = PermissionManager.is_admin(interaction.user.id)
         if not is_admin:
             await interaction.response.send_message(
-                "❌ You don't have permission to use this command!",
+                f"{theme.deniedIcon} You don't have permission to use this command!",
                 ephemeral=True
             )
         return is_admin
@@ -64,7 +61,7 @@ class BearTrapWizard(commands.Cog):
         view = WizardWelcomeView(self, wizard_session)
 
         embed = discord.Embed(
-            title="🧙 The Wizard",
+            title=f"{theme.wizardIcon} The Wizard",
             description=(
                 "*Welcome, oh seeker of convenient event notifications.*\n\n"
                 "**You shall not pass without reading the following instructions carefully!**\n\n"
@@ -79,7 +76,7 @@ class BearTrapWizard(commands.Cog):
                 "**The events you can configure include:**\n"
                 "• Bear Trap (Trap 1 & 2)\n"
                 "• Crazy Joe\n"
-                "• Mercenary Bosses\n"
+                "• Mercenary Prestige\n"
                 "• Foundry Battle\n"
                 "• Canyon Clash\n"
                 "• Fortress Battle\n"
@@ -160,7 +157,7 @@ class WizardSession:
             "Frostfire Mine": self.frostfire_data,
             "Castle Battle": self.sunfire_data,
             "SvS": self.svs_data,
-            "Mercenary Bosses": self.mercenary_bosses_data,
+            "Mercenary Prestige": self.mercenary_bosses_data,
             "Daily Reset": self.daily_reset_data
         }
         return mapping.get(event_type, {})
@@ -310,7 +307,7 @@ class WizardSession:
                     "phase": notif.get("instance_identifier")
                 })
 
-        elif event_type == "Mercenary Bosses":
+        elif event_type == "Mercenary Prestige":
             if "bosses" not in self.mercenary_bosses_data:
                 self.mercenary_bosses_data["bosses"] = []
             for notif in notifications:
@@ -331,19 +328,19 @@ class WizardWelcomeView(discord.ui.View):
         self.cog = cog
         self.session = session
 
-    @discord.ui.button(label="Start Wizard", emoji="✨", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="Start Wizard", emoji=f"{theme.wizardIcon}", style=discord.ButtonStyle.success, row=0)
     async def start_wizard(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Start the wizard - begin with Common Settings"""
         view = CommonSettingsHubView(self.cog, self.session)
         await view.show(interaction)
 
-    @discord.ui.button(label="Cancel", emoji="❌", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="Cancel", emoji=f"{theme.deniedIcon}", style=discord.ButtonStyle.danger, row=0)
     async def cancel_wizard(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Cancel the wizard"""
         embed = discord.Embed(
             title="Wizard Cancelled",
             description="The notification setup wizard has been cancelled.",
-            color=discord.Color.red()
+            color=theme.emColor2
         )
         await interaction.response.edit_message(embed=embed, view=None)
 
@@ -357,10 +354,10 @@ class CommonSettingsHubView(discord.ui.View):
     async def show(self, interaction: discord.Interaction):
         """Display the common settings hub"""
         # Build status display
-        channel_status = "✅ Configured" if self.session.channel_id else "⚠️ Required"
-        mention_status = "✅ Configured" if self.session.mention_type else "⚠️ Required"
-        notif_status = "✅ Configured" if self.session.notification_type else "⚙️ Default (10m, 5m, Time)"
-        timezone_status = f"✅ {self.session.timezone}" if self.session.timezone != "UTC" else "⚙️ UTC (Default)"
+        channel_status = f"{theme.verifiedIcon} Configured" if self.session.channel_id else f"{theme.warnIcon} Required"
+        mention_status = f"{theme.verifiedIcon} Configured" if self.session.mention_type else f"{theme.warnIcon} Required"
+        notif_status = f"{theme.verifiedIcon} Configured" if self.session.notification_type else f"{theme.settingsIcon} Default (10m, 5m, Time)"
+        timezone_status = f"{theme.verifiedIcon} {self.session.timezone}" if self.session.timezone != "UTC" else f"{theme.settingsIcon} UTC (Default)"
 
         # Get channel name if configured
         channel_name = ""
@@ -399,7 +396,7 @@ class CommonSettingsHubView(discord.ui.View):
             notif_desc = notif_map.get(self.session.notification_type, "")
 
         embed = discord.Embed(
-            title="⚙️ Global Settings",
+            title=f"{theme.settingsIcon} Global Settings",
             description=(
                 "First let's configure settings that will apply to all of the event notifications that we are going to set up.\n\n"
                 "**You need to do at least two things here:**\n"
@@ -409,27 +406,27 @@ class CommonSettingsHubView(discord.ui.View):
                 "- When the bot will send notifications before an event. 10m and 5m before and at the event time by default.\n"
                 "- The timezone for the event times. UTC by default.\n\n"
                 "**Required Settings:**\n"
-                f"📍 **Channel:** {channel_status}{channel_name}\n"
-                f"💬 **Mention:** {mention_status}{mention_desc}\n\n"
+                f"{theme.pinIcon} **Channel:** {channel_status}{channel_name}\n"
+                f"{theme.announceIcon} **Mention:** {mention_status}{mention_desc}\n\n"
                 "**Optional Settings:**\n"
-                f"⏰ **Notification Times:** {notif_status}{notif_desc}\n"
+                f"{theme.timeIcon} **Notification Times:** {notif_status}{notif_desc}\n"
                 f"🌍 **Timezone:** {timezone_status}\n\n"
                 "Click the buttons below to configure each setting.\n"
                 "When ready, click **Continue** to select events."
             ),
-            color=discord.Color.blue()
+            color=theme.emColor1
         )
 
         # Check if updating existing batch
         if self.session.is_update:
-            embed.set_footer(text=f"ℹ️ Updating existing batch with {len(self.session.existing_notifications)} notifications")
+            embed.set_footer(text=f"{theme.infoIcon} Updating existing batch with {len(self.session.existing_notifications)} notifications")
 
         self.clear_items()
 
         # Required settings buttons
         channel_button = discord.ui.Button(
             label="Set Channel",
-            emoji="📍",
+            emoji=f"{theme.pinIcon}",
             style=discord.ButtonStyle.success if self.session.channel_id else discord.ButtonStyle.danger,
             row=0
         )
@@ -438,7 +435,7 @@ class CommonSettingsHubView(discord.ui.View):
 
         mention_button = discord.ui.Button(
             label="Set Mention",
-            emoji="💬",
+            emoji=f"{theme.chatIcon}",
             style=discord.ButtonStyle.success if self.session.mention_type else discord.ButtonStyle.danger,
             row=0
         )
@@ -448,7 +445,7 @@ class CommonSettingsHubView(discord.ui.View):
         # Optional settings buttons
         notif_button = discord.ui.Button(
             label="Notification Times",
-            emoji="⏰",
+            emoji=f"{theme.timeIcon}",
             style=discord.ButtonStyle.success if self.session.notification_type else discord.ButtonStyle.secondary,
             row=1
         )
@@ -457,7 +454,7 @@ class CommonSettingsHubView(discord.ui.View):
 
         timezone_button = discord.ui.Button(
             label="Timezone",
-            emoji="🌍",
+            emoji=f"{theme.globeIcon}",
             style=discord.ButtonStyle.success if self.session.timezone != "UTC" else discord.ButtonStyle.secondary,
             row=1
         )
@@ -468,7 +465,7 @@ class CommonSettingsHubView(discord.ui.View):
         can_continue = self.session.channel_id and self.session.mention_type
         continue_button = discord.ui.Button(
             label="Continue to Event Selection",
-            emoji="➡️",
+            emoji=f"{theme.forwardIcon}",
             style=discord.ButtonStyle.primary,
             disabled=not can_continue,
             row=2
@@ -519,7 +516,7 @@ class WizardChannelSelectView(discord.ui.View):
             placeholder="Select notification channel",
             min_values=1,
             max_values=1,
-            channel_types=[discord.ChannelType.text]
+            channel_types=[discord.ChannelType.text, discord.ChannelType.news]
         )
         channel_select.callback = self.channel_selected
         self.add_item(channel_select)
@@ -527,9 +524,9 @@ class WizardChannelSelectView(discord.ui.View):
     async def show(self, interaction: discord.Interaction):
         """Display channel selection"""
         embed = discord.Embed(
-            title="📍 Select Notification Channel",
+            title=f"{theme.pinIcon} Select Notification Channel",
             description="Choose the channel where notifications will be posted.",
-            color=discord.Color.blue()
+            color=theme.emColor1
         )
         await interaction.response.edit_message(embed=embed, view=self)
 
@@ -563,14 +560,14 @@ class WizardMentionSelectView(discord.ui.View):
                 "3️⃣ Specific Member\n"
                 "4️⃣ No Mention"
             ),
-            color=discord.Color.blue()
+            color=theme.emColor1
         )
 
         self.clear_items()
 
         everyone_button = discord.ui.Button(
             label="@everyone",
-            emoji="📢",
+            emoji=f"{theme.announceIcon}",
             style=discord.ButtonStyle.danger,
             row=0
         )
@@ -579,7 +576,7 @@ class WizardMentionSelectView(discord.ui.View):
 
         role_button = discord.ui.Button(
             label="Select Role",
-            emoji="👥",
+            emoji=f"{theme.membersIcon}",
             style=discord.ButtonStyle.success,
             row=0
         )
@@ -588,7 +585,7 @@ class WizardMentionSelectView(discord.ui.View):
 
         member_button = discord.ui.Button(
             label="Select Member",
-            emoji="👤",
+            emoji=f"{theme.userIcon}",
             style=discord.ButtonStyle.primary,
             row=0
         )
@@ -597,7 +594,7 @@ class WizardMentionSelectView(discord.ui.View):
 
         no_mention_button = discord.ui.Button(
             label="No Mention",
-            emoji="🔕",
+            emoji=f"{theme.muteIcon}",
             style=discord.ButtonStyle.secondary,
             row=0
         )
@@ -629,9 +626,9 @@ class WizardMentionSelectView(discord.ui.View):
         view.add_item(role_select)
 
         embed = discord.Embed(
-            title="👥 Select Role",
+            title=f"{theme.membersIcon} Select Role",
             description="Choose a role to mention:",
-            color=discord.Color.blue()
+            color=theme.emColor1
         )
         await interaction.response.edit_message(embed=embed, view=view)
 
@@ -653,9 +650,9 @@ class WizardMentionSelectView(discord.ui.View):
         view.add_item(member_select)
 
         embed = discord.Embed(
-            title="👤 Select Member",
+            title=f"{theme.userIcon} Select Member",
             description="Choose a member to mention:",
-            color=discord.Color.blue()
+            color=theme.emColor1
         )
         await interaction.response.edit_message(embed=embed, view=view)
 
@@ -670,9 +667,9 @@ class WizardNotificationTypeView(discord.ui.View):
     async def show(self, interaction: discord.Interaction):
         """Display notification type selection"""
         embed = discord.Embed(
-            title="⏰ Select Notification Times",
+            title=f"{theme.alarmClockIcon} Select Notification Times",
             description="Choose when to send notifications before each event:",
-            color=discord.Color.blue()
+            color=theme.emColor1
         )
 
         self.clear_items()
@@ -787,7 +784,7 @@ class WizardCustomTimesModal(discord.ui.Modal, title="Set Custom Notification Ti
 
         except ValueError as e:
             await interaction.response.send_message(
-                f"❌ Invalid input: {str(e)}",
+                f"{theme.deniedIcon} Invalid input: {str(e)}",
                 ephemeral=True
             )
 
@@ -849,7 +846,7 @@ class WizardTimezoneModal(discord.ui.Modal, title="Set Timezone"):
 
         except Exception as e:
             await interaction.response.send_message(
-                f"❌ Invalid timezone! Please use a valid timezone name (e.g., UTC, America/New_York, UTC+2).",
+                f"{theme.deniedIcon} Invalid timezone! Please use a valid timezone name (e.g., UTC, America/New_York, UTC+2).",
                 ephemeral=True
             )
 
@@ -864,7 +861,7 @@ class EventSelectionHubView(discord.ui.View):
         self.event_types = [
             "Bear Trap",
             "Crazy Joe",
-            "Mercenary Bosses",
+            "Mercenary Prestige",
             "Foundry Battle",
             "Canyon Clash",
             "Fortress Battle",
@@ -881,22 +878,22 @@ class EventSelectionHubView(discord.ui.View):
         for event in self.event_types:
             icon = get_event_icon(event)
             if self.session.is_event_configured(event):
-                event_list.append(f"{icon} **{event}** ✅")
+                event_list.append(f"{icon} **{event}** {theme.verifiedIcon}")
             else:
                 event_list.append(f"{icon} {event}")
 
         configured_count = len(self.session.configured_events)
 
         embed = discord.Embed(
-            title="📋 Step 2: Configure Events",
+            title=f"{theme.listIcon} Step 2: Configure Events",
             description=(
                 f"**Events Configured: {configured_count}/{len(self.event_types)}**\n\n"
-                "Click an event to configure it. Configured events show ✅\n"
+                f"Click an event to configure it. Configured events show {theme.verifiedIcon}\n"
                 "Click a configured event again to unconfigure it.\n\n"
                 "**Available Events:**\n" + "\n".join(event_list) + "\n\n"
                 "When finished configuring events, click **Continue to Preview**."
             ),
-            color=discord.Color.blue()
+            color=theme.emColor1
         )
 
         self.clear_items()
@@ -918,7 +915,7 @@ class EventSelectionHubView(discord.ui.View):
         # Back button
         back_button = discord.ui.Button(
             label="Back to Settings",
-            emoji="⬅️",
+            emoji=f"{theme.backIcon}",
             style=discord.ButtonStyle.secondary,
             row=2
         )
@@ -928,7 +925,7 @@ class EventSelectionHubView(discord.ui.View):
         # Continue button (only enabled if at least one event configured)
         continue_button = discord.ui.Button(
             label="Continue to Preview",
-            emoji="➡️",
+            emoji=f"{theme.forwardIcon}",
             style=discord.ButtonStyle.primary,
             disabled=(configured_count == 0),
             row=2
@@ -976,7 +973,6 @@ class EventSelectionHubView(discord.ui.View):
                     ephemeral=True
                 )
 
-
 class EventConfigRouter:
     """Routes to appropriate event configuration view"""
     def __init__(self, cog: BearTrapWizard, session: WizardSession, event_type: str, hub_view: EventSelectionHubView):
@@ -996,14 +992,13 @@ class EventConfigRouter:
             "Frostfire Mine": FrostfireConfigView(self.cog, self.session, self.hub_view),
             "Castle Battle": SunfireConfigView(self.cog, self.session, self.hub_view),
             "SvS": SvSConfigView(self.cog, self.session, self.hub_view),
-            "Mercenary Bosses": MercenaryBossesConfigView(self.cog, self.session, self.hub_view),
+            "Mercenary Prestige": MercenaryBossesConfigView(self.cog, self.session, self.hub_view),
             "Daily Reset": DailyResetConfigView(self.cog, self.session, self.hub_view)
         }
 
         view = view_mapping.get(self.event_type)
         if view:
             await view.show(interaction)
-
 
 class BearTrapConfigView:
     """Configuration for Bear Trap events"""
@@ -1112,7 +1107,7 @@ class BearTrapModal(discord.ui.Modal):
             # Validate 5-minute slots
             if bt1_minute % 5 != 0 or bt2_minute % 5 != 0:
                 await interaction.response.send_message(
-                    "❌ Times must be in 5-minute increments (e.g., :00, :05, :10)!",
+                    f"{theme.deniedIcon} Times must be in 5-minute increments (e.g., :00, :05, :10)!",
                     ephemeral=True
                 )
                 return
@@ -1120,7 +1115,7 @@ class BearTrapModal(discord.ui.Modal):
             # Check overlap
             if abs((bt1_datetime - bt2_datetime).total_seconds()) < 1800:  # 30 minutes
                 await interaction.response.send_message(
-                    "❌ Bear 1 and Bear 2 must be at least 30 minutes apart!",
+                    f"{theme.deniedIcon} Bear 1 and Bear 2 must be at least 30 minutes apart!",
                     ephemeral=True
                 )
                 return
@@ -1129,7 +1124,7 @@ class BearTrapModal(discord.ui.Modal):
             repeat_answer = self.repeat_config.value.lower().strip()
             if repeat_answer not in ["yes", "no"]:
                 await interaction.response.send_message(
-                    "❌ Please answer 'yes' or 'no' for the repeat question!",
+                    f"{theme.deniedIcon} Please answer 'yes' or 'no' for the repeat question!",
                     ephemeral=True
                 )
                 return
@@ -1156,7 +1151,7 @@ class BearTrapModal(discord.ui.Modal):
 
         except Exception as e:
             await interaction.response.send_message(
-                f"❌ Invalid input! Please check your dates and times.\nError: {str(e)}",
+                f"{theme.deniedIcon} Invalid input! Please check your dates and times.\nError: {str(e)}",
                 ephemeral=True
             )
 
@@ -1177,7 +1172,7 @@ class BearTrapWeekdayView(discord.ui.View):
                 "Select which days of the week Bear Trap should repeat.\n\n"
                 "Click on the days to toggle selection, then click Continue."
             ),
-            color=discord.Color.blue()
+            color=theme.emColor1
         )
         if self.selected_days:
             day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -1204,7 +1199,7 @@ class BearTrapWeekdayView(discord.ui.View):
         # Add continue button
         continue_button = discord.ui.Button(
             label="Continue",
-            emoji="➡️",
+            emoji=f"{theme.forwardIcon}",
             style=discord.ButtonStyle.primary,
             disabled=len(self.selected_days) == 0,
             row=2
@@ -1212,6 +1207,7 @@ class BearTrapWeekdayView(discord.ui.View):
         continue_button.callback = self.continue_to_next
         self.add_item(continue_button)
         await interaction.response.edit_message(embed=embed, view=self)
+
     async def toggle_day(self, interaction: discord.Interaction, day: int):
         """Toggle day selection"""
         if day in self.selected_days:
@@ -1289,7 +1285,7 @@ class CrazyJoeModal(discord.ui.Modal):
             # Validate 5-minute slots
             if tue_minute % 5 != 0 or thu_minute % 5 != 0:
                 await interaction.response.send_message(
-                    "❌ Times must be in 5-minute increments!",
+                    f"{theme.deniedIcon} Times must be in 5-minute increments!",
                     ephemeral=True
                 )
                 return
@@ -1308,7 +1304,7 @@ class CrazyJoeModal(discord.ui.Modal):
 
         except Exception as e:
             await interaction.response.send_message(
-                f"❌ Invalid time format! Use HH:MM (e.g., 19:00).\nError: {str(e)}",
+                f"{theme.deniedIcon} Invalid time format! Use HH:MM (e.g., 19:00).\nError: {str(e)}",
                 ephemeral=True
             )
 
@@ -1369,7 +1365,7 @@ class DualLegionConfigView(discord.ui.View):
         # Add continue button
         continue_button = discord.ui.Button(
             label="Continue",
-            emoji="➡️",
+            emoji=f"{theme.forwardIcon}",
             style=discord.ButtonStyle.success,
             row=2
         )
@@ -1412,7 +1408,7 @@ class DualLegionConfigView(discord.ui.View):
         embed = discord.Embed(
             title=f"{icon} Configure {self.event_name}",
             description=description,
-            color=discord.Color.blue()
+            color=theme.emColor1
         )
 
         # Update continue button state
@@ -1451,7 +1447,7 @@ class DualLegionConfigView(discord.ui.View):
 
         if not has_legion1_time and not has_legion2_time:
             await interaction.response.send_message(
-                "❌ At least one Legion must have a time configured!",
+                f"{theme.deniedIcon} At least one Legion must have a time configured!",
                 ephemeral=True
             )
             return
@@ -1528,7 +1524,7 @@ class MultiTimeSelectView(discord.ui.View):
         continue_row = (len(self.time_slots) - 1) // buttons_per_row + 1
         continue_button = discord.ui.Button(
             label="Continue",
-            emoji="➡️",
+            emoji=f"{theme.forwardIcon}",
             style=discord.ButtonStyle.success,
             row=continue_row
         )
@@ -1561,7 +1557,7 @@ class MultiTimeSelectView(discord.ui.View):
         embed = discord.Embed(
             title=f"{icon} Configure {self.event_name}",
             description=description,
-            color=discord.Color.blue()
+            color=theme.emColor1
         )
 
         # Update button styles
@@ -1585,7 +1581,7 @@ class MultiTimeSelectView(discord.ui.View):
         """Save selected times and proceed"""
         if not self.selected_times:
             await interaction.response.send_message(
-                "❌ Please select at least one time!",
+                f"{theme.deniedIcon} Please select at least one time!",
                 ephemeral=True
             )
             return
@@ -1645,7 +1641,7 @@ class PhaseToggleConfigView(discord.ui.View):
         for phase in self.phases:
             phase_descriptions.append(f"• {phase['time']} - {phase['name']}")
             if self.selected_phases[phase["phase_key"]]:
-                notifications.append(f"**{phase['time']}** - {phase['name']} ✅")
+                notifications.append(f"**{phase['time']}** - {phase['name']} {theme.verifiedIcon}")
 
         schedule_desc = config.get("fixed_days", "Scheduled event")
         description = (
@@ -1665,12 +1661,12 @@ class PhaseToggleConfigView(discord.ui.View):
         if notifications:
             description += "\n**Selected:**\n" + "\n".join(notifications)
         else:
-            description += "\n⚠️ Select at least one notification to proceed."
+            description += f"\n{theme.warnIcon} Select at least one notification to proceed."
 
         embed = discord.Embed(
             title=f"{icon} Configure {self.event_name}",
             description=description,
-            color=discord.Color.blue()
+            color=theme.emColor1
         )
 
         self.clear_items()
@@ -1689,7 +1685,7 @@ class PhaseToggleConfigView(discord.ui.View):
         # Add confirm button (only enabled if at least one is selected)
         confirm_button = discord.ui.Button(
             label="Confirm",
-            emoji="✅",
+            emoji=f"{theme.verifiedIcon}",
             style=discord.ButtonStyle.primary,
             row=1,
             disabled=not any(self.selected_phases.values())
@@ -1742,7 +1738,7 @@ class SvSConfigView(PhaseToggleConfigView):
         super().__init__(cog, session, hub_view, "SvS", "svs_data", phases)
 
 class MercenaryBossesConfigView(discord.ui.View):
-    """Configuration for Mercenary Bosses (up to 5 instances during 3-day window)"""
+    """Configuration for Mercenary Prestige (up to 5 instances during 3-day window)"""
     def __init__(self, cog: BearTrapWizard, session: WizardSession, hub_view: EventSelectionHubView):
         super().__init__(timeout=3600)
         self.cog = cog
@@ -1761,10 +1757,10 @@ class MercenaryBossesConfigView(discord.ui.View):
                 })
 
     async def show(self, interaction: discord.Interaction):
-        """Show Mercenary Bosses configuration"""
-        icon = get_event_icon("Mercenary Bosses")
-        config = get_event_config("Mercenary Bosses")
-        next_date = calculate_next_occurrence("Mercenary Bosses")
+        """Show Mercenary Prestige configuration"""
+        icon = get_event_icon("Mercenary Prestige")
+        config = get_event_config("Mercenary Prestige")
+        next_date = calculate_next_occurrence("Mercenary Prestige")
 
         # Calculate the 3-day window
         window_text = "N/A"
@@ -1784,16 +1780,16 @@ class MercenaryBossesConfigView(discord.ui.View):
             boss_list = "*No bosses scheduled yet*"
 
         embed = discord.Embed(
-            title=f"{icon} Configure Mercenary Bosses",
+            title=f"{icon} Configure Mercenary Prestige",
             description=(
-                f"Mercenary Bosses occur **every 4 weeks during a 3-day window**.\n\n"
+                f"Mercenary Prestige occurs **every 3 weeks during a 3-day window**.\n\n"
                 f"**Next Event Window:** {window_text}\n"
                 f"**Duration:** 3 consecutive days\n\n"
                 f"You can schedule **up to 5 mercenary bosses** at any time during the 3-day window.\n"
                 f"Some alliances run several bosses early, others spread them out - it's up to you!\n\n"
                 f"**Scheduled Bosses ({len(self.boss_times)}/5):**\n{boss_list}"
             ),
-            color=discord.Color.blue()
+            color=theme.emColor1
         )
 
         self.clear_items()
@@ -1801,7 +1797,7 @@ class MercenaryBossesConfigView(discord.ui.View):
         # All At Once button (disabled if any bosses already added)
         configure_all_button = discord.ui.Button(
             label="All At Once",
-            emoji="⚡",
+            emoji=f"{theme.boltIcon}",
             style=discord.ButtonStyle.primary,
             disabled=len(self.boss_times) > 0,
             row=0
@@ -1812,7 +1808,7 @@ class MercenaryBossesConfigView(discord.ui.View):
         # Separate Events button (disabled if 5 bosses already)
         add_button = discord.ui.Button(
             label="Separate Events",
-            emoji="➕",
+            emoji=f"{theme.addIcon}",
             style=discord.ButtonStyle.secondary,
             disabled=len(self.boss_times) >= 5,
             row=0
@@ -1823,7 +1819,7 @@ class MercenaryBossesConfigView(discord.ui.View):
         # Remove last boss button (disabled if no bosses) - row 0 right of Separate Events
         remove_button = discord.ui.Button(
             label="Remove Last",
-            emoji="➖",
+            emoji=f"{theme.minusIcon}",
             style=discord.ButtonStyle.secondary,
             disabled=len(self.boss_times) == 0,
             row=0
@@ -1834,7 +1830,7 @@ class MercenaryBossesConfigView(discord.ui.View):
         # Clear all button (disabled if no bosses) - row 1 left side
         clear_button = discord.ui.Button(
             label="Clear All",
-            emoji="🗑️",
+            emoji=f"{theme.trashIcon}",
             style=discord.ButtonStyle.danger,
             disabled=len(self.boss_times) == 0,
             row=1
@@ -1842,10 +1838,20 @@ class MercenaryBossesConfigView(discord.ui.View):
         clear_button.callback = self.clear_all_bosses
         self.add_item(clear_button)
 
+        # Back button - row 1 middle
+        back_button = discord.ui.Button(
+            label="Back",
+            emoji=f"{theme.prevIcon}",
+            style=discord.ButtonStyle.secondary,
+            row=1
+        )
+        back_button.callback = self.go_back
+        self.add_item(back_button)
+
         # Continue button (disabled if no bosses) - row 1 right side
         continue_button = discord.ui.Button(
             label="Continue",
-            emoji="➡️",
+            emoji=f"{theme.forwardIcon}",
             style=discord.ButtonStyle.success,
             disabled=len(self.boss_times) == 0,
             row=1
@@ -1879,11 +1885,15 @@ class MercenaryBossesConfigView(discord.ui.View):
         self.boss_times.clear()
         await self.show(interaction)
 
+    async def go_back(self, interaction: discord.Interaction):
+        """Return to Event Selection Hub without saving"""
+        await self.hub_view.show(interaction)
+
     async def continue_to_next(self, interaction: discord.Interaction):
         """Save boss times and proceed"""
         if not self.boss_times:
             await interaction.response.send_message(
-                "❌ Please add at least one mercenary boss!",
+                f"{theme.deniedIcon} Please add at least one mercenary boss!",
                 ephemeral=True
             )
             return
@@ -1892,7 +1902,7 @@ class MercenaryBossesConfigView(discord.ui.View):
             "bosses": self.boss_times  # List of {day, hour, minute}
         }
         # Mark as configured and return to hub
-        self.session.mark_event_configured("Mercenary Bosses")
+        self.session.mark_event_configured("Mercenary Prestige")
         await self.hub_view.show(interaction)
 
 class MercenaryBossTimeModal(discord.ui.Modal, title="Add Mercenary Boss"):
@@ -1932,7 +1942,7 @@ class MercenaryBossTimeModal(discord.ui.Modal, title="Add Mercenary Boss"):
 
             if day_str not in day_mapping:
                 await interaction.response.send_message(
-                    "❌ Day must be Saturday, Sunday, or Monday!",
+                    f"{theme.deniedIcon} Day must be Saturday, Sunday, or Monday!",
                     ephemeral=True
                 )
                 return
@@ -1943,7 +1953,7 @@ class MercenaryBossTimeModal(discord.ui.Modal, title="Add Mercenary Boss"):
             time_str = self.time_input.value.strip()
             if not validate_time_slot(time_str, "5min"):
                 await interaction.response.send_message(
-                    "❌ Invalid time format! Use HH:MM in 5-minute increments (e.g., 14:30, 16:00)",
+                    f"{theme.deniedIcon} Invalid time format! Use HH:MM in 5-minute increments (e.g., 14:30, 16:00)",
                     ephemeral=True
                 )
                 return
@@ -1962,7 +1972,7 @@ class MercenaryBossTimeModal(discord.ui.Modal, title="Add Mercenary Boss"):
 
         except ValueError:
             await interaction.response.send_message(
-                "❌ Invalid input! Day must be Saturday/Sunday/Monday and time must be in HH:MM format.",
+                f"{theme.deniedIcon} Invalid input! Day must be Saturday/Sunday/Monday and time must be in HH:MM format.",
                 ephemeral=True
             )
 
@@ -2003,7 +2013,7 @@ class MercenaryAllBossesModal(discord.ui.Modal, title="All Bosses At Once"):
 
             if day_str not in day_mapping:
                 await interaction.response.send_message(
-                    "❌ Day must be Saturday, Sunday, or Monday!",
+                    f"{theme.deniedIcon} Day must be Saturday, Sunday, or Monday!",
                     ephemeral=True
                 )
                 return
@@ -2014,7 +2024,7 @@ class MercenaryAllBossesModal(discord.ui.Modal, title="All Bosses At Once"):
             time_str = self.start_time_input.value.strip()
             if not validate_time_slot(time_str, "5min"):
                 await interaction.response.send_message(
-                    "❌ Invalid time format! Use HH:MM in 5-minute increments (e.g., 14:00, 16:30)",
+                    f"{theme.deniedIcon} Invalid time format! Use HH:MM in 5-minute increments (e.g., 14:00, 16:30)",
                     ephemeral=True
                 )
                 return
@@ -2034,7 +2044,7 @@ class MercenaryAllBossesModal(discord.ui.Modal, title="All Bosses At Once"):
 
         except ValueError:
             await interaction.response.send_message(
-                "❌ Invalid input! Day must be Saturday/Sunday/Monday and time must be in HH:MM format.",
+                f"{theme.deniedIcon} Invalid input! Day must be Saturday/Sunday/Monday and time must be in HH:MM format.",
                 ephemeral=True
             )
 
@@ -2064,12 +2074,44 @@ class WizardPreviewView(discord.ui.View):
 
     async def show(self, interaction: discord.Interaction):
         """Show preview of all notifications to be created"""
+
+        # Format mention description
+        mention_desc = "Not set"
+        if self.session.mention_type:
+            if self.session.mention_type == "everyone":
+                mention_desc = "@everyone"
+            elif self.session.mention_type.startswith("role_"):
+                role_id = int(self.session.mention_type.split("_")[1])
+                role = interaction.guild.get_role(role_id)
+                mention_desc = f"@{role.name}" if role else "Role"
+            elif self.session.mention_type.startswith("member_"):
+                member_id = int(self.session.mention_type.split("_")[1])
+                member = interaction.guild.get_member(member_id)
+                mention_desc = f"@{member.name}" if member else "Member"
+            elif self.session.mention_type == "none":
+                mention_desc = "No Mention"
+
+        # Format notification times description
+        notif_desc = "Default (10m, 5m, Time)"
+        if self.session.notification_type:
+            notif_map = {
+                1: "30m, 10m, 5m & Time",
+                2: "10m, 5m & Time",
+                3: "5m & Time",
+                4: "5m before only",
+                5: "At event time",
+                6: f"Custom: {self.session.custom_times}" if self.session.custom_times else "Custom"
+            }
+            notif_desc = notif_map.get(self.session.notification_type, "Unknown")
+
         embed = discord.Embed(
-            title="📋 Preview: Notifications to Create",
+            title=f"{theme.listIcon} Preview: Notifications to Create",
             description=(
                 "Review the notifications that will be created.\n\n"
                 f"**Channel:** <#{self.session.channel_id}>\n"
-                f"**Timezone:** {self.session.timezone}\n\n"
+                f"**Timezone:** {self.session.timezone}\n"
+                f"**Mention:** {mention_desc}\n"
+                f"**Notification Times:** {notif_desc}\n\n"
                 "**Events:**"
             ),
             color=discord.Color.gold()
@@ -2144,7 +2186,7 @@ class WizardPreviewView(discord.ui.View):
                         value=f"└ Times: {times_list}",
                         inline=False
                     )
-            elif event == "Mercenary Bosses" and data:
+            elif event == "Mercenary Prestige" and data:
                 bosses = data.get("bosses", [])
                 if bosses:
                     boss_lines = []
@@ -2173,7 +2215,7 @@ class WizardPreviewView(discord.ui.View):
         # Add buttons
         create_button = discord.ui.Button(
             label="Create All",
-            emoji="✨",
+            emoji=f"{theme.wizardIcon}",
             style=discord.ButtonStyle.success,
             row=0
         )
@@ -2182,7 +2224,7 @@ class WizardPreviewView(discord.ui.View):
 
         cancel_button = discord.ui.Button(
             label="Cancel",
-            emoji="❌",
+            emoji=f"{theme.deniedIcon}",
             style=discord.ButtonStyle.danger,
             row=0
         )
@@ -2212,8 +2254,8 @@ class WizardPreviewView(discord.ui.View):
                 return f"{hour:02d}:{minute:02d}"
             return instance_id
 
-        # Mercenary Bosses: boss_0 -> "Boss 1"
-        if event_name == "Mercenary Bosses" and instance_id.startswith("boss_"):
+        # Mercenary Prestige: boss_0 -> "Boss 1"
+        if event_name == "Mercenary Prestige" and instance_id.startswith("boss_"):
             try:
                 idx = int(instance_id.split("_")[1])
                 return f"Boss {idx + 1}"
@@ -2251,7 +2293,8 @@ class WizardPreviewView(discord.ui.View):
                 event_type=event_name,
                 embed_data=embed_data,
                 instance_identifier=instance_id,
-                skip_board_update=True
+                skip_board_update=True,
+                start_date=start_date
             )
             # Re-enable if it was disabled
             if not existing.get("is_enabled", 1):
@@ -2298,7 +2341,7 @@ class WizardPreviewView(discord.ui.View):
             progress_embed = discord.Embed(
                 title="⏳ Processing Notifications...",
                 description="Please wait while notifications are being updated.",
-                color=discord.Color.blue()
+                color=theme.emColor1
             )
             await interaction.edit_original_response(embed=progress_embed, view=None)
 
@@ -2306,9 +2349,9 @@ class WizardPreviewView(discord.ui.View):
             if not bear_trap_cog:
                 await interaction.edit_original_response(
                     embed=discord.Embed(
-                        title="❌ Error",
+                        title=f"{theme.deniedIcon} Error",
                         description="BearTrap cog not found. Cannot create notifications.",
-                        color=discord.Color.red()
+                        color=theme.emColor2
                     )
                 )
                 return
@@ -2354,24 +2397,44 @@ class WizardPreviewView(discord.ui.View):
 
                 # Get event config for image/thumbnail URLs and calculate next occurrence
                 from .bear_event_types import get_event_config, calculate_next_occurrence
-                event_config = get_event_config(event_name)
+                event_config = get_event_config(event_name) or {}
 
                 # Calculate next occurrence for global events (returns None for custom events like Bear Trap)
                 event_next_occurrence = calculate_next_occurrence(event_name)
                 if not event_next_occurrence:
                     event_next_occurrence = now  # Fallback to now for custom events
 
-                # Prepare embed data with image and thumbnail URLs
-                embed_data = {
-                    'title': f"{event_name} Notification",
-                    'description': event_config.get('description', ''),
-                    'color': discord.Color.blue().value,
-                    'image_url': event_config.get('image_url', ''),
-                    'thumbnail_url': event_config.get('thumbnail_url', ''),
-                    'footer': None,
-                    'author': None,
-                    'mention_message': None
-                }
+                # Check for customized template first
+                template_data = None
+                templates_cog = bear_trap_cog.bot.get_cog("BearTrapTemplates")
+                if templates_cog:
+                    templates = templates_cog.get_templates_by_event_type(event_name)
+                    if templates:
+                        template_data = templates_cog.get_template(templates[0]["template_id"])
+
+                # Prepare embed data
+                if template_data:
+                    embed_data = {
+                        'title': template_data.get('embed_title') or f"{event_name} Notification",
+                        'description': template_data.get('embed_description') or event_config.get('description', ''),
+                        'color': int(template_data.get('embed_color') or discord.Color.blue().value),
+                        'image_url': template_data.get('embed_image_url') or event_config.get('image_url', ''),
+                        'thumbnail_url': template_data.get('embed_thumbnail_url') or event_config.get('thumbnail_url', ''),
+                        'footer': template_data.get('footer'),
+                        'author': template_data.get('author'),
+                        'mention_message': template_data.get('mention_message')
+                    }
+                else:
+                    embed_data = {
+                        'title': f"{event_name} Notification",
+                        'description': event_config.get('description', ''),
+                        'color': discord.Color.blue().value,
+                        'image_url': event_config.get('image_url', ''),
+                        'thumbnail_url': event_config.get('thumbnail_url', ''),
+                        'footer': None,
+                        'author': None,
+                        'mention_message': None
+                    }
 
                 # Set embed data on the bear_trap_cog so save_notification can use it
                 bear_trap_cog.current_embed_data = embed_data
@@ -2622,9 +2685,9 @@ class WizardPreviewView(discord.ui.View):
                             display = self._get_instance_display_name(event_name, old_phase, notif.get("hour"), notif.get("minute"))
                             event_changes.setdefault(event_name, []).append((display, "disabled"))
 
-                elif event_name == "Mercenary Bosses":
-                    # Boss times across 3-day window (repeats every 4 weeks)
-                    repeat_minutes = 28 * 24 * 60
+                elif event_name == "Mercenary Prestige":
+                    # Boss times across 3-day window (repeats every 3 weeks)
+                    repeat_minutes = 21 * 24 * 60
                     bosses = event_data.get("bosses", [])
                     processed_instances = set()
 
@@ -2677,9 +2740,9 @@ class WizardPreviewView(discord.ui.View):
 
             # Build completion message with per-event changes
             embed = discord.Embed(
-                title="✅ Wizard Complete!",
+                title=f"{theme.verifiedIcon} Wizard Complete!",
                 description=f"**Channel:** <#{self.session.channel_id}>\n**Timezone:** {self.session.timezone}",
-                color=discord.Color.green()
+                color=theme.emColor3
             )
 
             # Build event list with change annotations
@@ -2714,7 +2777,7 @@ class WizardPreviewView(discord.ui.View):
             )
 
             embed.add_field(
-                name="📅 Next Step",
+                name=f"{theme.calendarIcon} Next Step",
                 value="Would you like to set up a schedule board that automatically shows the upcoming events in the channel?",
                 inline=False
             )
@@ -2728,9 +2791,9 @@ class WizardPreviewView(discord.ui.View):
             traceback.print_exc()
             await interaction.edit_original_response(
                 embed=discord.Embed(
-                    title="❌ Error Creating Notifications",
+                    title=f"{theme.deniedIcon} Error Creating Notifications",
                     description=f"An error occurred: {str(e)}",
-                    color=discord.Color.red()
+                    color=theme.emColor2
                 ),
                 view=None
             )
@@ -2740,7 +2803,7 @@ class WizardPreviewView(discord.ui.View):
         embed = discord.Embed(
             title="Wizard Cancelled",
             description="No notifications were created.",
-            color=discord.Color.red()
+            color=theme.emColor2
         )
         await interaction.response.edit_message(embed=embed, view=None)
 
@@ -2750,14 +2813,14 @@ class WizardCompletionView(discord.ui.View):
         self.cog = cog
         self.session = session
 
-    @discord.ui.button(label="Create Schedule Board", emoji="📋", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="Create Schedule Board", emoji=f"{theme.listIcon}", style=discord.ButtonStyle.success, row=0)
     async def create_board(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Create a schedule board for the channel"""
         try:
             schedule_cog = self.cog.bot.get_cog("BearTrapSchedule")
             if not schedule_cog:
                 await interaction.response.send_message(
-                    "❌ Schedule board module not found.",
+                    f"{theme.deniedIcon} Schedule board module not found.",
                     ephemeral=True
                 )
                 return
@@ -2765,7 +2828,7 @@ class WizardCompletionView(discord.ui.View):
             bear_trap_cog = self.cog.bot.get_cog("BearTrap")
             if not bear_trap_cog:
                 await interaction.followup.send(
-                    "❌ BearTrap module not found.",
+                    f"{theme.deniedIcon} BearTrap module not found.",
                     ephemeral=True
                 )
                 return
@@ -2776,14 +2839,14 @@ class WizardCompletionView(discord.ui.View):
             )
             if not notifications:
                 await interaction.followup.send(
-                    "❌ No wizard notifications found to create board.",
+                    f"{theme.deniedIcon} No wizard notifications found to create board.",
                     ephemeral=True
                 )
                 return
             channel = self.cog.bot.get_channel(self.session.channel_id)
             if not channel:
                 await interaction.followup.send(
-                    "❌ Could not access the channel.",
+                    f"{theme.deniedIcon} Could not access the channel.",
                     ephemeral=True
                 )
                 return
@@ -2807,13 +2870,13 @@ class WizardCompletionView(discord.ui.View):
                 board_id = existing_channel_board[0]
                 await schedule_cog.update_schedule_board(board_id)
                 embed = discord.Embed(
-                    title="✅ Schedule Board Updated!",
+                    title=f"{theme.verifiedIcon} Schedule Board Updated!",
                     description=f"The existing channel-specific schedule board has been updated with your new notifications.",
-                    color=discord.Color.green()
+                    color=theme.emColor3
                 )
                 if server_boards_count > 0:
                     embed.add_field(
-                        name="⚠️ Note",
+                        name=f"{theme.warnIcon} Note",
                         value=f"This channel also has {server_boards_count} server-wide schedule board(s). You may want to remove them to avoid confusion.",
                         inline=False
                     )
@@ -2831,43 +2894,43 @@ class WizardCompletionView(discord.ui.View):
 
                 if error:
                     await interaction.followup.send(
-                        f"❌ Error creating schedule board: {error}",
+                        f"{theme.deniedIcon} Error creating schedule board: {error}",
                         ephemeral=True
                     )
                     return
 
                 if board_id:
                     embed = discord.Embed(
-                        title="✅ Schedule Board Created!",
+                        title=f"{theme.verifiedIcon} Schedule Board Created!",
                         description=f"A channel-specific schedule board has been created and pinned in <#{self.session.channel_id}>.\n\nThis board will only show notifications for this channel.",
-                        color=discord.Color.green()
+                        color=theme.emColor3
                     )
                     if server_boards_count > 0:
                         embed.add_field(
-                            name="⚠️ Note",
+                            name=f"{theme.warnIcon} Note",
                             value=f"This channel also has {server_boards_count} server-wide schedule board(s). You may want to remove them using `/schedule manage` to avoid confusion.",
                             inline=False
                         )
                     await interaction.edit_original_response(embed=embed, view=None)
                 else:
                     await interaction.followup.send(
-                        "❌ Failed to create schedule board (no board ID returned)",
+                        f"{theme.deniedIcon} Failed to create schedule board (no board ID returned)",
                         ephemeral=True
                     )
         except Exception as e:
             print(f"Error creating schedule board: {e}")
             await interaction.followup.send(
-                f"❌ Error creating schedule board: {str(e)}",
+                f"{theme.deniedIcon} Error creating schedule board: {str(e)}",
                 ephemeral=True
             )
 
-    @discord.ui.button(label="Done", emoji="✅", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="Done", emoji=f"{theme.verifiedIcon}", style=discord.ButtonStyle.secondary, row=0)
     async def done(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Close the wizard"""
         embed = discord.Embed(
-            title="✅ Wizard Complete!",
+            title=f"{theme.verifiedIcon} Wizard Complete!",
             description="All done! Your notifications are ready.",
-            color=discord.Color.green()
+            color=theme.emColor3
         )
         await interaction.response.edit_message(embed=embed, view=None)
 

@@ -8,6 +8,7 @@ from datetime import datetime
 import discord
 import ssl
 import logging
+from .pimp_my_bot import theme
 
 logger = logging.getLogger("gift_operationsapi")
 
@@ -142,6 +143,10 @@ class GiftCodeAPI:
             backoff = self.current_backoff * random.uniform(0.75, 1.25)
             self.current_backoff = min(self.current_backoff * 2, self.max_backoff_time)
             return backoff
+        elif response.status == 400 and "previously marked invalid" in response_text:
+            # Expected behavior for expired/invalid codes - log at debug level
+            self.logger.info(f"Code already marked invalid on API: {response_text[:100]}")
+            return 0  # No backoff needed for expected invalid codes
         else: # Other errors - standard backoff
             self.logger.error(f"API error: {response.status}, {response_text[:200]}")
             return self.current_backoff * random.uniform(0.75, 1.25)
@@ -332,15 +337,15 @@ class GiftCodeAPI:
                                                 elif is_valid is False:
                                                     invalid_codes_count += 1
                                                     self.logger.warning(f"API code '{code}' is invalid: {validation_msg}")
-                                                    validation_status = f"❌ Invalid: {validation_msg}"
+                                                    validation_status = f"{theme.deniedIcon} Invalid: {validation_msg}"
                                                     auto_alliances = []
                                                 else:
                                                     self.logger.warning(f"API code '{code}' validation inconclusive after retries: {validation_msg}")
-                                                    validation_status = f"⚠️ Pending"
+                                                    validation_status = f"{theme.warnIcon} Pending"
                                                     auto_alliances = []
                                             else:
                                                 self.logger.error("GiftOperations cog not found for validation!")
-                                                validation_status = "❌ Error"
+                                                validation_status = f"{theme.deniedIcon} Error"
                                                 auto_alliances = []
 
                                             self.settings_cursor.execute("SELECT id FROM admin WHERE is_initial = 1")
@@ -348,22 +353,22 @@ class GiftCodeAPI:
                                             if admin_ids:
                                                 embed_description = (
                                                     f"**Gift Code Details**\n"
-                                                    f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                                                    f"🎁 **Code:** `{code}`\n"
-                                                    f"📅 **Date:** `{formatted_date}`\n"
-                                                    f"📝 **Validation Status:** `{validation_status}`\n"
-                                                    f"🌐 **Source:** `Retrieved from Bot API`\n"
-                                                    f"⏰ **Time:** <t:{int(datetime.now().timestamp())}:R>\n"
-                                                    f"🔄 **Auto Alliance Count:** `{len(auto_alliances)}`\n"
+                                                    f"{theme.upperDivider}\n"
+                                                    f"{theme.giftIcon} **Code:** `{code}`\n"
+                                                    f"{theme.calendarIcon} **Date:** `{formatted_date}`\n"
+                                                    f"{theme.listIcon} **Validation Status:** `{validation_status}`\n"
+                                                    f"{theme.linkIcon} **Source:** `Retrieved from Bot API`\n"
+                                                    f"{theme.alarmClockIcon} **Time:** <t:{int(datetime.now().timestamp())}:R>\n"
+                                                    f"{theme.refreshIcon} **Auto Alliance Count:** `{len(auto_alliances)}`\n"
                                                 )
 
                                                 if is_valid is None:
                                                     embed_description += (
-                                                        f"\n⚠️ **Auto-redemption delayed** - Validation inconclusive after several retries.\n"
+                                                        f"\n{theme.warnIcon} **Auto-redemption delayed** - Validation inconclusive after several retries.\n"
                                                         f"Please wait for periodic validation to complete, after which auto-redemption will begin.\n"
                                                     )
 
-                                                embed_description += f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                                                embed_description += f"{theme.lowerDivider}\n"
 
                                                 embed_color = discord.Color.green() if is_valid else (discord.Color.red() if is_valid is False else discord.Color.orange())
 
@@ -465,15 +470,24 @@ class GiftCodeAPI:
                                                 self.logger.info(f"Successfully pushed code {db_code} to API")
                                             else:
                                                 response_text = await post_response.text()
-                                                self.logger.warning(f"Failed to push code {db_code}: {post_response.status}, {response_text[:200]}")
-                                                
-                                                if "invalid" in response_text.lower(): # Code was rejected as invalid by API, mark it as invalid locally
-                                                    self.logger.warning(f"Code {db_code} marked invalid by API, updating local status")
+
+                                                # Check if this is an expected "previously marked invalid" response
+                                                if post_response.status == 400 and "previously marked invalid" in response_text:
+                                                    self.logger.info(f"Code {db_code} already expired/invalid on API - updating local status")
                                                     self.cursor.execute("UPDATE gift_codes SET validation_status = 'invalid' WHERE giftcode = ?", (db_code,))
                                                     await self._safe_commit(self.conn, "mark code invalid")
-                                                
+                                                elif "invalid" in response_text.lower():
+                                                    # Other invalid code responses
+                                                    self.logger.info(f"Code {db_code} rejected as invalid by API - updating local status")
+                                                    self.cursor.execute("UPDATE gift_codes SET validation_status = 'invalid' WHERE giftcode = ?", (db_code,))
+                                                    await self._safe_commit(self.conn, "mark code invalid")
+                                                else:
+                                                    # Unexpected error - log as warning
+                                                    self.logger.warning(f"Failed to push code {db_code}: {post_response.status}, {response_text[:200]}")
+
                                                 backoff_time = await self._handle_api_error(post_response, response_text)
-                                                await asyncio.sleep(backoff_time)
+                                                if backoff_time > 0:
+                                                    await asyncio.sleep(backoff_time)
                                     except Exception as e:
                                         self.logger.exception(f"Error pushing code {db_code} to API: {e}")
                                         await asyncio.sleep(self.error_backoff_time)
@@ -487,7 +501,7 @@ class GiftCodeAPI:
                             return False
                             
                 except aiohttp.ClientError as e:
-                    self.logger.exception(f"HTTP request error: {e}")
+                    self.logger.warning(f"Connection error syncing with Gift Code API: {type(e).__name__}")
                     return False
             
         except Exception as e:
@@ -559,7 +573,7 @@ class GiftCodeAPI:
                             return False
 
                 except aiohttp.ClientError as e:
-                    self.logger.exception(f"HTTP error adding code {giftcode}: {e}")
+                    self.logger.warning(f"Connection error adding code {giftcode} to API: {type(e).__name__}")
                     return False
             
         except Exception as e:
@@ -615,7 +629,7 @@ class GiftCodeAPI:
                             await asyncio.sleep(backoff_time)
                             return False
                 except aiohttp.ClientError as e:
-                    self.logger.exception(f"HTTP error removing code {giftcode}: {e}")
+                    self.logger.warning(f"Connection error removing code {giftcode} from API: {type(e).__name__}")
                     return False
         except Exception as e:
             self.logger.exception(f"Unexpected error removing code {giftcode}: {e}")
@@ -647,7 +661,7 @@ class GiftCodeAPI:
                             await asyncio.sleep(backoff_time)
                             return False
                 except aiohttp.ClientError as e:
-                    self.logger.exception(f"HTTP error checking code {giftcode}: {e}")
+                    self.logger.warning(f"Connection error checking code {giftcode} in API: {type(e).__name__}")
                     return False
         except Exception as e:
             self.logger.exception(f"Unexpected error checking code {giftcode}: {e}")

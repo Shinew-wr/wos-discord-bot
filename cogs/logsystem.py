@@ -4,6 +4,7 @@ import sqlite3
 from datetime import datetime
 from .alliance_member_operations import AllianceSelectView
 from .alliance import PaginatedChannelView
+from .pimp_my_bot import theme
 
 class LogSystem(commands.Cog):
     def __init__(self, bot):
@@ -47,61 +48,54 @@ class LogSystem(commands.Cog):
         
         if custom_id == "log_system":
             try:
-                self.settings_cursor.execute("SELECT is_initial FROM admin WHERE id = ?", (interaction.user.id,))
-                result = self.settings_cursor.fetchone()
-                
-                if not result or result[0] != 1:
+                from .permission_handler import PermissionManager
+                is_admin, _ = PermissionManager.is_admin(interaction.user.id)
+
+                if not is_admin:
                     await interaction.response.send_message(
-                        "❌ Only global administrators can access the log system.", 
+                        f"{theme.deniedIcon} Only administrators can access the log system.",
                         ephemeral=True
                     )
                     return
 
                 log_embed = discord.Embed(
-                    title="📋 Alliance Log System",
+                    title=f"{theme.listIcon} Alliance Log System",
                     description=(
-                        "Select an option to manage alliance logs:\n\n"
-                        "**Available Options**\n"
-                        "━━━━━━━━━━━━━━━━━━━━━━\n"
-                        "📝 **Set Log Channel**\n"
-                        "└ Assign a log channel to an alliance\n\n"
-                        "🗑️ **Remove Log Channel**\n"
-                        "└ Remove alliance log channel\n\n"
-                        "📊 **View Log Channels**\n"
-                        "└ List all alliance log channels\n"
-                        "━━━━━━━━━━━━━━━━━━━━━━"
+                        f"Select an option to manage alliance logs:\n\n"
+                        f"**Available Options**\n"
+                        f"{theme.upperDivider}\n"
+                        f"{theme.editListIcon} **Set Log Channel**\n"
+                        f"└ Assign a log channel to an alliance\n\n"
+                        f"{theme.trashIcon} **Remove Log Channel**\n"
+                        f"└ Remove alliance log channel\n\n"
+                        f"{theme.chartIcon} **View Log Channels**\n"
+                        f"└ List all alliance log channels\n"
+                        f"{theme.lowerDivider}"
                     ),
-                    color=discord.Color.blue()
+                    color=theme.emColor1
                 )
 
                 view = discord.ui.View()
                 view.add_item(discord.ui.Button(
                     label="Set Log Channel",
-                    emoji="📝",
+                    emoji=f"{theme.editListIcon}",
                     style=discord.ButtonStyle.primary,
                     custom_id="set_log_channel",
                     row=0
                 ))
                 view.add_item(discord.ui.Button(
                     label="Remove Log Channel",
-                    emoji="🗑️",
+                    emoji=f"{theme.trashIcon}",
                     style=discord.ButtonStyle.danger,
                     custom_id="remove_log_channel",
                     row=0
                 ))
                 view.add_item(discord.ui.Button(
                     label="View Log Channels",
-                    emoji="📊",
+                    emoji=f"{theme.chartIcon}",
                     style=discord.ButtonStyle.secondary,
                     custom_id="view_log_channels",
                     row=1
-                ))
-                view.add_item(discord.ui.Button(
-                    label="Back",
-                    emoji="◀️",
-                    style=discord.ButtonStyle.secondary,
-                    custom_id="bot_operations",
-                    row=2
                 ))
 
                 await interaction.response.send_message(
@@ -113,32 +107,32 @@ class LogSystem(commands.Cog):
             except Exception as e:
                 print(f"Error in log system menu: {e}")
                 await interaction.response.send_message(
-                    "❌ An error occurred while accessing the log system.",
+                    f"{theme.deniedIcon} An error occurred while accessing the log system.",
                     ephemeral=True
                 )
 
         elif custom_id == "set_log_channel":
             try:
-                self.settings_cursor.execute("SELECT is_initial FROM admin WHERE id = ?", (interaction.user.id,))
-                result = self.settings_cursor.fetchone()
-                
-                if not result or result[0] != 1:
+                from .permission_handler import PermissionManager
+
+                if interaction.guild is None:
+                    await interaction.response.send_message(f"{theme.deniedIcon} This command must be used in a server.", ephemeral=True)
+                    return
+
+                is_admin, _ = PermissionManager.is_admin(interaction.user.id)
+                if not is_admin:
                     await interaction.response.send_message(
-                        "❌ Only global administrators can set log channels.", 
+                        f"{theme.deniedIcon} Only administrators can set log channels.",
                         ephemeral=True
                     )
                     return
 
-                self.alliance_cursor.execute("""
-                    SELECT alliance_id, name 
-                    FROM alliance_list 
-                    ORDER BY name
-                """)
-                alliances = self.alliance_cursor.fetchall()
+                # Get alliances this admin can access
+                alliances, _ = PermissionManager.get_admin_alliances(interaction.user.id, interaction.guild.id)
 
                 if not alliances:
                     await interaction.response.send_message(
-                        "❌ No alliances found.", 
+                        f"{theme.deniedIcon} No alliances found.", 
                         ephemeral=True
                     )
                     return
@@ -152,14 +146,14 @@ class LogSystem(commands.Cog):
                         alliances_with_counts.append((alliance_id, name, member_count))
 
                 alliance_embed = discord.Embed(
-                    title="📝 Set Log Channel",
+                    title=f"{theme.editListIcon} Set Log Channel",
                     description=(
-                        "Please select an alliance:\n\n"
-                        "**Alliance List**\n"
-                        "━━━━━━━━━━━━━━━━━━━━━━\n"
-                        "Select an alliance from the list below:\n"
+                        f"Please select an alliance:\n\n"
+                        f"**Alliance List**\n"
+                        f"{theme.upperDivider}\n"
+                        f"Select an alliance from the list below:\n"
                     ),
-                    color=discord.Color.blue()
+                    color=theme.emColor1
                 )
 
                 view = AllianceSelectView(alliances_with_counts, self)
@@ -170,15 +164,15 @@ class LogSystem(commands.Cog):
                         alliance_id = int(alliance_view.current_select.values[0])
                         
                         channel_embed = discord.Embed(
-                            title="📝 Set Log Channel",
+                            title=f"{theme.editListIcon} Set Log Channel",
                             description=(
-                                "**Instructions:**\n"
-                                "━━━━━━━━━━━━━━━━━━━━━━\n"
-                                "Please select a channel for logging\n\n"
-                                "**Page:** 1/1\n"
+                                f"**Instructions:**\n"
+                                f"{theme.upperDivider}\n"
+                                f"Please select a channel for logging\n\n"
+                                f"**Page:** 1/1\n"
                                 f"**Total Channels:** {len(select_interaction.guild.text_channels)}"
                             ),
-                            color=discord.Color.blue()
+                            color=theme.emColor1
                         )
 
                         async def channel_select_callback(channel_interaction: discord.Interaction):
@@ -195,11 +189,11 @@ class LogSystem(commands.Cog):
                                 alliance_name = self.alliance_cursor.fetchone()[0]
 
                                 success_embed = discord.Embed(
-                                    title="✅ Log Channel Set",
+                                    title=f"{theme.verifiedIcon} Log Channel Set",
                                     description=(
                                         f"Successfully set log channel:\n\n"
-                                        f"🏰 **Alliance:** {alliance_name}\n"
-                                        f"📝 **Channel:** <#{channel_id}>\n"
+                                        f"{theme.allianceIcon} **Alliance:** {alliance_name}\n"
+                                        f"{theme.editListIcon} **Channel:** <#{channel_id}>\n"
                                     ),
                                     color=discord.Color.green()
                                 )
@@ -212,7 +206,7 @@ class LogSystem(commands.Cog):
                             except Exception as e:
                                 print(f"Error setting log channel: {e}")
                                 await channel_interaction.response.send_message(
-                                    "❌ An error occurred while setting the log channel.",
+                                    f"{theme.deniedIcon} An error occurred while setting the log channel.",
                                     ephemeral=True
                                 )
 
@@ -234,12 +228,12 @@ class LogSystem(commands.Cog):
                         print(f"Error in alliance selection: {e}")
                         if not select_interaction.response.is_done():
                             await select_interaction.response.send_message(
-                                "❌ An error occurred while processing your selection.",
+                                f"{theme.deniedIcon} An error occurred while processing your selection.",
                                 ephemeral=True
                             )
                         else:
                             await select_interaction.followup.send(
-                                "❌ An error occurred while processing your selection.",
+                                f"{theme.deniedIcon} An error occurred while processing your selection.",
                                 ephemeral=True
                             )
 
@@ -252,31 +246,49 @@ class LogSystem(commands.Cog):
             except Exception as e:
                 print(f"Error in set log channel: {e}")
                 await interaction.response.send_message(
-                    "❌ An error occurred while setting up the log channel.",
+                    f"{theme.deniedIcon} An error occurred while setting up the log channel.",
                     ephemeral=True
                 )
 
         elif custom_id == "remove_log_channel":
             try:
-                self.settings_cursor.execute("SELECT is_initial FROM admin WHERE id = ?", (interaction.user.id,))
-                result = self.settings_cursor.fetchone()
-                
-                if not result or result[0] != 1:
+                from .permission_handler import PermissionManager
+
+                if interaction.guild is None:
+                    await interaction.response.send_message(f"{theme.deniedIcon} This command must be used in a server.", ephemeral=True)
+                    return
+
+                is_admin, _ = PermissionManager.is_admin(interaction.user.id)
+                if not is_admin:
                     await interaction.response.send_message(
-                        "❌ Only global administrators can remove log channels.", 
+                        f"{theme.deniedIcon} Only administrators can remove log channels.",
                         ephemeral=True
                     )
                     return
 
-                self.settings_cursor.execute("""
-                    SELECT al.alliance_id, al.channel_id 
+                # Get alliances this admin can access
+                admin_alliances, _ = PermissionManager.get_admin_alliances(interaction.user.id, interaction.guild.id)
+                admin_alliance_ids = [a[0] for a in admin_alliances] if admin_alliances else []
+
+                if not admin_alliance_ids:
+                    await interaction.response.send_message(
+                        f"{theme.deniedIcon} No alliances found.",
+                        ephemeral=True
+                    )
+                    return
+
+                # Get log entries only for alliances admin can access
+                placeholders = ','.join('?' * len(admin_alliance_ids))
+                self.settings_cursor.execute(f"""
+                    SELECT al.alliance_id, al.channel_id
                     FROM alliance_logs al
-                """)
+                    WHERE al.alliance_id IN ({placeholders})
+                """, admin_alliance_ids)
                 log_entries = self.settings_cursor.fetchall()
 
                 if not log_entries:
                     await interaction.response.send_message(
-                        "❌ No alliance log channels found.", 
+                        f"{theme.deniedIcon} No alliance log channels found.",
                         ephemeral=True
                     )
                     return
@@ -295,18 +307,18 @@ class LogSystem(commands.Cog):
 
                 if not alliances_with_counts:
                     await interaction.response.send_message(
-                        "❌ No valid log channels found.", 
+                        f"{theme.deniedIcon} No valid log channels found.", 
                         ephemeral=True
                     )
                     return
 
                 remove_embed = discord.Embed(
-                    title="🗑️ Remove Log Channel",
+                    title=f"{theme.trashIcon} Remove Log Channel",
                     description=(
-                        "Select an alliance to remove its log channel:\n\n"
-                        "**Current Log Channels**\n"
-                        "━━━━━━━━━━━━━━━━━━━━━━\n"
-                        "Select an alliance from the list below:\n"
+                        f"Select an alliance to remove its log channel:\n\n"
+                        f"**Current Log Channels**\n"
+                        f"{theme.upperDivider}\n"
+                        f"Select an alliance from the list below:\n"
                     ),
                     color=discord.Color.red()
                 )
@@ -324,12 +336,12 @@ class LogSystem(commands.Cog):
                         channel_id = self.settings_cursor.fetchone()[0]
                         
                         confirm_embed = discord.Embed(
-                            title="⚠️ Confirm Removal",
+                            title=f"{theme.warnIcon} Confirm Removal",
                             description=(
                                 f"Are you sure you want to remove the log channel for:\n\n"
-                                f"🏰 **Alliance:** {alliance_name}\n"
-                                f"📝 **Channel:** <#{channel_id}>\n\n"
-                                "This action cannot be undone!"
+                                f"{theme.allianceIcon} **Alliance:** {alliance_name}\n"
+                                f"{theme.editListIcon} **Channel:** <#{channel_id}>\n\n"
+                                f"This action cannot be undone!"
                             ),
                             color=discord.Color.yellow()
                         )
@@ -345,11 +357,11 @@ class LogSystem(commands.Cog):
                                 self.settings_db.commit()
 
                                 success_embed = discord.Embed(
-                                    title="✅ Log Channel Removed",
+                                    title=f"{theme.verifiedIcon} Log Channel Removed",
                                     description=(
                                         f"Successfully removed log channel for:\n\n"
-                                        f"🏰 **Alliance:** {alliance_name}\n"
-                                        f"📝 **Channel:** <#{channel_id}>"
+                                        f"{theme.allianceIcon} **Alliance:** {alliance_name}\n"
+                                        f"{theme.editListIcon} **Channel:** <#{channel_id}>"
                                     ),
                                     color=discord.Color.green()
                                 )
@@ -362,13 +374,13 @@ class LogSystem(commands.Cog):
                             except Exception as e:
                                 print(f"Error removing log channel: {e}")
                                 await button_interaction.response.send_message(
-                                    "❌ An error occurred while removing the log channel.",
+                                    f"{theme.deniedIcon} An error occurred while removing the log channel.",
                                     ephemeral=True
                                 )
 
                         async def cancel_callback(button_interaction: discord.Interaction):
                             cancel_embed = discord.Embed(
-                                title="❌ Removal Cancelled",
+                                title=f"{theme.deniedIcon} Removal Cancelled",
                                 description="The log channel removal has been cancelled.",
                                 color=discord.Color.red()
                             )
@@ -379,7 +391,7 @@ class LogSystem(commands.Cog):
 
                         confirm_button = discord.ui.Button(
                             label="Confirm",
-                            emoji="✅",
+                            emoji=f"{theme.verifiedIcon}",
                             style=discord.ButtonStyle.danger,
                             custom_id="confirm_remove"
                         )
@@ -387,7 +399,7 @@ class LogSystem(commands.Cog):
 
                         cancel_button = discord.ui.Button(
                             label="Cancel",
-                            emoji="❌",
+                            emoji=f"{theme.deniedIcon}",
                             style=discord.ButtonStyle.secondary,
                             custom_id="cancel_remove"
                         )
@@ -411,12 +423,12 @@ class LogSystem(commands.Cog):
                         print(f"Error in alliance selection: {e}")
                         if not select_interaction.response.is_done():
                             await select_interaction.response.send_message(
-                                "❌ An error occurred while processing your selection.",
+                                f"{theme.deniedIcon} An error occurred while processing your selection.",
                                 ephemeral=True
                             )
                         else:
                             await select_interaction.followup.send(
-                                "❌ An error occurred while processing your selection.",
+                                f"{theme.deniedIcon} An error occurred while processing your selection.",
                                 ephemeral=True
                             )
 
@@ -431,40 +443,58 @@ class LogSystem(commands.Cog):
             except Exception as e:
                 print(f"Error in remove log channel: {e}")
                 await interaction.response.send_message(
-                    "❌ An error occurred while setting up the removal menu.",
+                    f"{theme.deniedIcon} An error occurred while setting up the removal menu.",
                     ephemeral=True
                 )
 
         elif custom_id == "view_log_channels":
             try:
-                self.settings_cursor.execute("SELECT is_initial FROM admin WHERE id = ?", (interaction.user.id,))
-                result = self.settings_cursor.fetchone()
-                
-                if not result or result[0] != 1:
+                from .permission_handler import PermissionManager
+
+                if interaction.guild is None:
+                    await interaction.response.send_message(f"{theme.deniedIcon} This command must be used in a server.", ephemeral=True)
+                    return
+
+                is_admin, _ = PermissionManager.is_admin(interaction.user.id)
+                if not is_admin:
                     await interaction.response.send_message(
-                        "❌ Only global administrators can view log channels.", 
+                        f"{theme.deniedIcon} Only administrators can view log channels.",
                         ephemeral=True
                     )
                     return
 
-                self.settings_cursor.execute("""
-                    SELECT alliance_id, channel_id 
-                    FROM alliance_logs 
+                # Get alliances this admin can access
+                admin_alliances, _ = PermissionManager.get_admin_alliances(interaction.user.id, interaction.guild.id)
+                admin_alliance_ids = [a[0] for a in admin_alliances] if admin_alliances else []
+
+                if not admin_alliance_ids:
+                    await interaction.response.send_message(
+                        f"{theme.deniedIcon} No alliances found.",
+                        ephemeral=True
+                    )
+                    return
+
+                # Get log entries only for alliances admin can access
+                placeholders = ','.join('?' * len(admin_alliance_ids))
+                self.settings_cursor.execute(f"""
+                    SELECT alliance_id, channel_id
+                    FROM alliance_logs
+                    WHERE alliance_id IN ({placeholders})
                     ORDER BY alliance_id
-                """)
+                """, admin_alliance_ids)
                 log_entries = self.settings_cursor.fetchall()
 
                 if not log_entries:
                     await interaction.response.send_message(
-                        "❌ No alliance log channels found.", 
+                        f"{theme.deniedIcon} No alliance log channels found.", 
                         ephemeral=True
                     )
                     return
 
                 list_embed = discord.Embed(
-                    title="📊 Alliance Log Channels",
+                    title=f"{theme.chartIcon} Alliance Log Channels",
                     description="Current log channel assignments:\n\n",
-                    color=discord.Color.blue()
+                    color=theme.emColor1
                 )
 
                 for alliance_id, channel_id in log_entries:
@@ -476,13 +506,13 @@ class LogSystem(commands.Cog):
                     channel_name = channel.name if channel else "Unknown Channel"
 
                     list_embed.add_field(
-                        name=f"🏰 Alliance ID: {alliance_id}",
+                        name=f"{theme.allianceIcon} Alliance ID: {alliance_id}",
                         value=(
                             f"**Name:** {alliance_name}\n"
                             f"**Log Channel:** <#{channel_id}>\n"
                             f"**Channel ID:** {channel_id}\n"
                             f"**Channel Name:** #{channel_name}\n"
-                            "━━━━━━━━━━━━━━━━━━━━━━"
+                            f"{theme.lowerDivider}"
                         ),
                         inline=False
                     )
@@ -490,7 +520,7 @@ class LogSystem(commands.Cog):
                 view = discord.ui.View()
                 view.add_item(discord.ui.Button(
                     label="Back",
-                    emoji="◀️",
+                    emoji=f"{theme.prevIcon}",
                     style=discord.ButtonStyle.secondary,
                     custom_id="log_system",
                     row=0
@@ -505,7 +535,7 @@ class LogSystem(commands.Cog):
             except Exception as e:
                 print(f"Error in view log channels: {e}")
                 await interaction.response.send_message(
-                    "❌ An error occurred while viewing log channels.",
+                    f"{theme.deniedIcon} An error occurred while viewing log channels.",
                     ephemeral=True
                 )
 
